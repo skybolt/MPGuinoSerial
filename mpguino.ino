@@ -17,17 +17,17 @@
 
 /* --- Global Variable Declarations -------------------------- */
 
-static unsigned long MAXLOOPLENGTH = 0;
-unsigned long LASTLOOPLENGTH = 0; // see if we are overutilizing the CPU  
+static unsigned long MAXLOOPLENGTH = 0; // see if we are overutilizing the CPU 
+unsigned long LASTLOOPLENGTH = 0;  
 unsigned long screenDelay = 600;
-static long genericTimer = 0;
-static long idleTimer = 0;
-static long gphTimer = 0;
-static unsigned long lastGoodRPM = 433000; 
-static unsigned long lastGoodGPH = 0; 
-static unsigned long maxDelay = 0; 
+static unsigned long maxDelay = 0;
+static boolean  setupRan = 0;  
+//static long genericTimer = 0;
+//static long idleTimer = 0;
+//static long gphTimer = 0;
+//static unsigned long lastGoodRPM = 433000; 
+//static unsigned long lastGoodGPH = 0; 
 //static unsigned long loopStart;
-static boolean  setupRan = 0; 
 
 
 //for display computing
@@ -284,7 +284,7 @@ volatile boolean lastVssFlop = vssFlop;
 //attach the vss/buttons interrupt      
 ISR(PCINT1_vect) {    
 #if (useDebug)
-   Serial.println("PCINT1_vect"); 
+   //Serial.println(("PCINT1_vect"); 
 #endif
    static unsigned char vsspinstate=0;      
    unsigned char p = PINC;//bypassing digitalRead for interrupt performance      
@@ -405,7 +405,7 @@ void setup (void) {
    pinMode(DB6Pin,OUTPUT);       
    pinMode(DB7Pin,OUTPUT);       
 
-   delay2(500);      
+   //delay2(500);      
 
    pinMode(ContrastPin,OUTPUT);      
    analogWrite(ContrastPin,parms[contrastIdx]);  
@@ -443,7 +443,8 @@ void setup (void) {
    INIT_OUTSIDE_TEMP();
    #endif
 
-   delay2(1500);       
+   delay2(1500);
+   maxDelay = 0;    
 } /* void setup (void) */
  
 void loop (void) {
@@ -490,7 +491,7 @@ void loop (void) {
       #if (CFG_SERIAL_TX == 1)
       /* send out instantmpg * 1000, instantmph * 1000, the injector/vss raw data */
       if (true) {
-      /*simpletx(format(instantmpg()));
+      simpletx(format(instantmpg()));
       simpletx(",");
       simpletx(format(instantmph()));
       simpletx(",");
@@ -498,7 +499,7 @@ void loop (void) {
       simpletx(",");
       simpletx(format(instant.injPulses * 1000));
       simpletx(",");
-      simpletx(format(instant.vssPulses * 1000)); */
+      simpletx(format(instant.vssPulses * 1000)); 
       simpletx("\n");  
       }
       #endif
@@ -506,65 +507,24 @@ void loop (void) {
       /* --- update all of the trip objects */
       current.update(instant);       //use instant to update current      
       tank.update(instant);          //use instant to update tank
-      //periodic.update(instant);   //use instant to update periodic 
       #if (BARGRAPH_DISPLAY_CFG == 1)
       if (lastActivity != nil) {
          periodic.update(instant);   //use instant to update periodic 
-         #if (false)
-         Serial.println("periodic.update(instant)");
-         #endif
       }
       #endif
 
       #if (BARGRAPH_DISPLAY_CFG == 1)
-      
-      
-        //Serial.println("p-loop cntr"); 
-        //Serial.println(  periodic.loopCount / (1000000/(LASTLOOPLENGTH))  ); 
-        //Serial.println(periodic.loopCount * 1);
-      
-        if (   (periodic.loopCount / (1000000/(LASTLOOPLENGTH)) >= 30)      ) {
-        genericTimer = millis2();//; - loopStart; 
-        //Serial.println("p-loop cntr"); 
-        //Serial.println(  periodic.loopCount / (1000000/(LASTLOOPLENGTH))  ); 
-//      if   (genericTimer >= 14) {
-        genericTimer = 0; 
-      #if (useDebug)
-/*    Serial.println((1000000/(LASTLOOPLENGTH/1000))); 
-      Serial.println((1000000/(LASTLOOPLENGTH/1000))); 
-      Serial.println("loopcount IS > 30!");  
-      Serial.println(periodic.loopCount * (1000000/(LASTLOOPLENGTH/1000))); */
-      #endif
-        temp = MIN((periodic.mpg()/10), 0xFFFF);
+      /* --- For bargraph: reset periodic every n seconds */
+      if (periodic.loopCount / loopsPerSecond >= 60) {
+         temp = MIN((periodic.mpg()/10), 0xFFFF);
          /* add temp into first element and shift items in array */
-         insert((int*)PERIODIC_HIST, ((unsigned short)temp+1), mylength(PERIODIC_HIST), 0);
+         insert((int*)PERIODIC_HIST, (unsigned short)temp, mylength(PERIODIC_HIST), 0);
          periodic.reset();   /* reset */
       }
-      
-      
-      
-      
-      
-      /* --- For bargraph: reset periodic every n milliseconds */
-      
-
-     
-     /* //try and use timer instead of loop count
-     if (genericTimer == 0) {
-         genericTimer = millis2();
-      }
-      
-      if (millis2() - genericTimer >= 30000) {
-        temp = MIN((periodic.mpg()/10), 0xFFFF);
-         insert((int*)PERIODIC_HIST, ((unsigned short)temp+1), mylength(PERIODIC_HIST), 0);
-         periodic.reset();   // reset 
-         genericTimer = 0; 
-      } */ //end of try and use timer instead of loop count
       #endif
       
       /* --- Decide whether to go to sleep or wake up */
       if (    (instant.vssPulses  == 0) 
-            //&& (instant.injPulses == 0) 
             && (instantrpm() == 0) 
             && (HOLD_DISPLAY      == 0) 
           ) 
@@ -600,7 +560,6 @@ void loop (void) {
              *        Said another way, we don't get the cursor back unless we ask for it. */
             #endif
             lastActivity=loopStart;
-            //current.reset();
             tank.loopCount = tankHold;
             current.update(instant); 
             tank.update(instant); 
@@ -621,8 +580,8 @@ void loop (void) {
       displayFuncs[SCREEN]();    //call the appropriate display routine      
       #elif (CFG_IDLE_MESSAGE == 1)
       /* --- during idle, jump to EOC information */
-      if (     (instant.injPulses >  0) 
-      if (     (instant.vssPulses == 0) 
+      if (    (instant.injPulses >  0) 
+           && (instant.vssPulses == 0) 
          ) 
       {
          /* the intention of the below logic is to avoid the display flipping 
@@ -648,21 +607,14 @@ void loop (void) {
 
       if (IdleDisplayRequested) {
          doDisplayEOCIdleData();
-         #if (useDebug)
-         Serial.println("doDisplay ECO/EOC"); 
-         #endif
       }
       else {
          displayFuncs[SCREEN]();
-         #if (useDebug)
-         Serial.println("[SCREEN]"); 
-         #endif
       }
       #endif
 
       #if (CFG_FUELCUT_INDICATOR != 0)
       /* --- insert visual indication that fuel cut is happening */
-      //if (    (instant.injPulses == 0) 
       if (    (instantrpm() == 0)
            && (instant.vssPulses >  0) 
          ) 
@@ -670,7 +622,6 @@ void loop (void) {
          #if (CFG_FUELCUT_INDICATOR == 1)
          LCDBUF1[FCUT_POS] = 'x';
          #elif ((CFG_FUELCUT_INDICATOR == 2) || (CFG_FUELCUT_INDICATOR == 3))
-         //if loopstart is more than 500 ms ago, then: 
          LCDBUF1[FCUT_POS] = spinner[CLOCK & 0x03];
          #endif
       }
@@ -700,25 +651,17 @@ void loop (void) {
       
       /* --- see if any buttons were pressed, display a brief message if so --- */
       if (LeftButtonPressed && RightButtonPressed) {
-         // left and right = initialize      
-         LCD::print(getStr(PSTR("Setup ")));   
-         //delay2(screenDelay); 
-         //maxDelay = screenDelay;   
+         LCD::print(getStr(PSTR("Setup ")));
          initGuino();  
       }
       else if (LeftButtonPressed && MiddleButtonPressed) {
-         // left and middle = tank reset      
          tank.reset();      
          LCD::print(getStr(PSTR("Tank Reset ")));
-         //delay2(screenDelay); 
-         //maxDelay = screenDelay;   
       }
       else if (MiddleButtonPressed && RightButtonPressed) {
-         // right and middle = current reset      
          current.reset();      
          LCD::print(getStr(PSTR("Current Reset ")));  
-         //delay2(screenDelay); 
-         //maxDelay = screenDelay;        
+     
       }
       #if (CFG_IDLE_MESSAGE == 1)
       else if ((LeftButtonPressed || RightButtonPressed) && (IdleDisplayRequested)) {
@@ -736,26 +679,21 @@ void loop (void) {
              if (SCREEN == dragSceenIdx) {
                delay2(600); 
              }
-         //delay2(screenDelay);
-         //maxDelay = screenDelay;      
          }
          else {
             SCREEN=displayFuncSize-1;      
          }
          LCD::print(getStr(displayFuncNames[SCREEN])); 
-         //delay2(screenDelay);      
-         //maxDelay = screenDelay;     
       }
       else if (MiddleButtonPressed) {
          #if (DRAGRACE_DISPLAY_CFG)
          if(SCREEN == dragSceenIdx) {
             myDrag.reset();   
-            LCD::print(getStr(PSTR("DragRace Reset"))); 
-            //delay2(125);  
+            LCD::print(getStr(PSTR("DragRace Reset")));
          } else
          #endif
          {
-         // middle is cycle through brightness settings
+           
          brightnessIdx = (brightnessIdx + 1) % brightnessLength;
          if(brightnessIdx==0) { //just in case when display gets corrupted, you can cycle to brightness 0 and display will be initialized again
            LCD::init();           
@@ -763,23 +701,17 @@ void loop (void) {
          }
          analogWrite(BrightnessPin,brightness[brightnessIdx]);
          LCD::print(getStr(PSTR("Brightness ")));
-         //delay2(600);
          LCD::LcdDataWrite('0' + brightnessIdx);
-         LCD::print(" ");
-         //delay2(screenDelay);      
-         //maxDelay = screenDelay;     
+         LCD::print(" ");  
          }      
       }
       else if (RightButtonPressed) {
          // right is rotate through screens to the right     
          SCREEN=(SCREEN+1)%displayFuncSize;      
          LCD::print(getStr(displayFuncNames[SCREEN])); 
-        if (SCREEN == dragSceenIdx) {
+         if (SCREEN == dragSceenIdx) {
                delay2(600); 
              }
- 
-         //delay2(screenDelay);      
-         //maxDelay = screenDelay;     
       }      
 
       #if (CFG_IDLE_MESSAGE == 1)
@@ -791,9 +723,7 @@ void loop (void) {
       #endif
 
       if (buttonState!=buttonsUp) {
-         HOLD_DISPLAY = 10;
-         delay2(screenDelay);      
-         maxDelay = screenDelay;     
+         HOLD_DISPLAY = 1;  
       }
 
    }  /* if (HOLD_DISPLAY == 0) */
@@ -804,32 +734,26 @@ void loop (void) {
    // reset the buttons      
    buttonState=buttonsUp;
    
-     //begin UNO modifications   
-  if (UNO_MODIFICATIONS == 1) {
+#if UNO_MODIFICATIONS == 1  //begin UNO modifications
   int softButton;
   softButton = analogRead (0);
   
   if (softButton < 60) { //reads zero 
-      Serial.println("Soft Right"); 
+      //Serial.println(("Soft Right"); 
    LCD::LcdCommandWrite(LCD_ClearDisplay);    
          SCREEN=(SCREEN+1)%displayFuncSize;      
          LCD::print(getStr(displayFuncNames[SCREEN])); 
- //        if (maxDelay != screenDelay) {
-         /*Serial.println("maxDelay != screenDelay"); 
-         Serial.println(maxDelay);   
-         Serial.println(screenDelay);  */
-         
-//       }
+
          delay2(screenDelay);  
-         //maxDelay = screenDelay; 
+
   }
   else if (softButton < 200){  //reads 99
-      Serial.println("Soft Up");  
+
       tank.reset();
       current.reset();
   }
   else if (softButton < 400){ //reads 255
-      Serial.println ("Soft Down");
+
    LCD::LcdCommandWrite(LCD_ClearDisplay);
          #if (DRAGRACE_DISPLAY_CFG)
          if(SCREEN == dragSceenIdx) {
@@ -839,22 +763,18 @@ void loop (void) {
          } else
          #endif
          {
-         // middle is cycle through brightness settings
          brightnessIdx = (brightnessIdx + 1) % brightnessLength;
          if(brightnessIdx==0) { //just in case when display gets corrupted, you can cycle to brightness 0 and display will be initialized again
            LCD::init();           
-           //LCD::LcdCommandWrite(LCD_SetDDRAM); // set dram to zero
          }
          analogWrite(BrightnessPin,brightness[brightnessIdx]);
          LCD::print(getStr(PSTR("Brightness ")));
          LCD::LcdDataWrite('0' + brightnessIdx);
          LCD::print(" ");
          delay2(screenDelay);
-         //maxDelay = screenDelay; 
          }    
   }
   else if (softButton < 600){ //reads 409
-      Serial.println("Soft Left");
    LCD::LcdCommandWrite(LCD_ClearDisplay);
       if (SCREEN!=0) {
              SCREEN--;       
@@ -864,49 +784,32 @@ void loop (void) {
          }
          LCD::print(getStr(displayFuncNames[SCREEN]));
          delay2(screenDelay);  
-         //maxDelay = screenDelay; 
   }
   else if (softButton < 800){  //
-      Serial.println ("Soft Select");
    LCD::LcdCommandWrite(LCD_ClearDisplay);
          LCD::print(getStr(PSTR("Setup ")));  
          delay2(screenDelay); 
-         //maxDelay = screenDelay;  
          initGuino();  
   } else {  //reads 1023
   }
-} //end if UNO_MODIFICATIONS
+#endif //end if UNO_MODIFICATIONS
 
        if (setupRan == 0) {  
        } else { //reset loopstart so MxLL isn't too long based on setup delay
          loopStart=microSeconds();  
          setupRan = 0;
-
        }  
        
    // keep track of how long the loops take before we go int waiting. 
    LASTLOOPLENGTH = elapsedMicroseconds(loopStart);   
    MAXLOOPLENGTH = MAX(MAXLOOPLENGTH, elapsedMicroseconds(loopStart));
-      Serial.println("myDrag.running is");
-     Serial.println(myDrag.running);
-     Serial.println("myDrag.waiting_start is");
-     Serial.println(myDrag.waiting_start);
    
    //if (myDrag.running || myDrag.waiting_start) {
      if (SCREEN == dragSceenIdx) {
-     
-     //Serial.println("if met, either mydrag.running, or waiting_st
-
-     //continue; 
-
    }
    
    else {
      
-   Serial.println("drag not running, else condition met. Next # are elapsed microsocodns (looptart) and (looptime)");
-   Serial.println(elapsedMicroseconds(loopStart));
-   Serial.println(looptime);
-   //Serial.println(
    while (elapsedMicroseconds(loopStart) < (looptime)) {
       // wait for the end of the loop to arrive (default was .5, calcualte from header values)
       // if this number is less than millis2() - loopStart, loops will not be delayed
@@ -1023,8 +926,7 @@ void doDisplayCustom() {
   char * mBuff = "Im"; //2 char buffer
 
   // --- during idle, show GPH
-//  if(instant.injPulses > 0 && instant.vssPulses == 0) {
-  if(instantrpm() > 0 && instant.vssPulses == 0) {
+  if(instant.injPulses > 0 && instant.vssPulses == 0) {
     impg=instantgph();
     #if (CFG_UNITS == 2)
       mBuff = "Lh";
@@ -1064,15 +966,6 @@ void doDisplayDragRace() {
 String dSpeed = String(parms[dragSpeed]);
 char * mBuff = "Imm"; //3 char buffer
 itoa(parms[dragSpeed], mBuff, 10);
-// --- during idle, show GPH
-  //if(instant.injPulses > 0 && instant.vssPulses == 0) {
-    //impg=instantgph();
-    //#if (CFG_UNITS == 2)
-      //mBuff = getStr(String(parms[dragSpeed]));
-    //#else
-      //mBuff = "Gh";
-    //#endif
-  //}
 
 #if (CFG_UNITS == 2) 
    displayTripCombo("ET",0,myDrag.time(),       "Spd",1,myDrag.trapspeed(),
@@ -1086,11 +979,11 @@ itoa(parms[dragSpeed], mBuff, 10);
 
 void doDisplayEOCIdleData() {
    #if (CFG_UNITS == 2)
-   displayTripCombo("eC",0,current.eocMiles(), "cL",0,current.idleGallons(),
-                    "eT",0,tank.eocMiles(),    "tL",0,tank.idleGallons());
+   displayTripCombo("eC",0,current.eocMiles(), "iL",0,current.idleGallons(),
+                    "eT",0,tank.eocMiles(),    "iL",0,tank.idleGallons());
    #else
-   displayTripCombo("eC",0,current.eocMiles(), "iC",0,current.idleGallons(),
-                    "eT",0,tank.eocMiles(),    "iT",0,tank.idleGallons());
+   displayTripCombo("iC",0,current.idleGallons(), "eC",0,current.eocMiles(),
+                    "iT",0,tank.idleGallons(),    "eT",0,tank.eocMiles());
    #endif
 }      
 
@@ -1119,8 +1012,7 @@ void doDisplayInstantTank() {
   char * mBuff = "Im"; //2 char buffer
 
   // --- during idle, show GPH
-  //if(instant.injPulses > 0 && instant.vssPulses == 0) {
-  if(instantrpm() > 0 && instant.vssPulses == 0) {
+  if(instant.injPulses > 0 && instant.vssPulses == 0) {
     impg=instantgph();
     #if (CFG_UNITS == 2)
       mBuff = "Lh";
@@ -1128,8 +1020,6 @@ void doDisplayInstantTank() {
       mBuff = "Gh";
     #endif
   }
-   //displayTripCombo(mBuff,0,impg,  "Spd",1,instantmph(),
-   //                 "Cm",0,current.mpg(), "D",0,current.miles());
                     
    displayTripCombo(mBuff,0,impg,  "DTE",1,getDTE(),
                     "Tm",0,tank.mpg(), "Fr",0, (parms[tankSizeIdx] - tank.gallons()) * 1//(tank.mpg() * 1000)    
@@ -1151,8 +1041,7 @@ void doDisplayBigInstant() {
   #endif
 
   // --- during idle, show GPH
-  //if(instant.injPulses > 0 && instant.vssPulses == 0) {
-  if(instantrpm() > 0 && instant.vssPulses == 0) {
+  if(instant.injPulses > 0 && instant.vssPulses == 0) {
     impg=instantgph();
     #if (CFG_UNITS == 2)
       mBuff = "L/h ";
@@ -1203,37 +1092,17 @@ void doDisplayTankTripData(void) {
 
 void doDisplaySystemInfo(void) {  
    /* display max cpu utilization and ram */
-   #if (useDebug)
-         /*Serial.println("maxDelay != screenDelay"); 
-         Serial.println(maxDelay);   
-         Serial.println(screenDelay); */
-   #endif 
    strcpy(&LCDBUF1[0], "MxL ");
-   //Serial.println(MAXLOOPLENGTH);
-   strcpy(&LCDBUF1[4], intformat((MAXLOOPLENGTH)-(maxDelay*1000),4));
-   /*
-   Serial.println(maxDelay); 
-   Serial.println(screenDelay); 
-   Serial.println(MAXLOOPLENGTH); 
-   Serial.println(LASTLOOPLENGTH);
-   //strcpy(&LCDBUF1[8], " T");
-   //strcpy(&LCDBUF1[10], format(tank.time()));
-   */ 
+   strcpy(&LCDBUF1[4], intformat(   MAXLOOPLENGTH-(maxDelay*1000)      ,4));
    strcpy(&LCDBUF1[8], " LsL");
    strcpy(&LCDBUF1[11], intformat    ((/*LASTLOOPLENGTH*/1000000/(LASTLOOPLENGTH/1000)),5)   );  
-   //strcpy(&LCDBUF1[8], " rpm");
-   //strcpy(&LCDBUF1[10], intformat    (instantrpm()   )); 
+   Serial.println(MAXLOOPLENGTH); 
+   Serial.println(maxDelay * 1000); 
 
    unsigned long mem = memoryTest();      
    mem*=1000;      
    strcpy(&LCDBUF2[0], "Free mem: ");
    strcpy(&LCDBUF2[10],  intformat(mem,6));
-   //strcpy(&LCDBUF2[0],"Idle Timer");
-   //strcpy(&LCDBUF2[10], format( (millis2() - idleTimer) ));
-   Serial.println("showing timer from screen timer\nmillis2() idleTimer, then gap");
-   Serial.println(millis2()); 
-   Serial.println(idleTimer); 
-   Serial.println(millis2() - idleTimer); 
 }    
 
 #if (BARGRAPH_DISPLAY_CFG == 1)
@@ -1296,18 +1165,6 @@ unsigned long getDTE(void){
    fuel_remaining = parms[tankSizeIdx] - tank.gallons();
    fuel_remaining = MAX(fuel_remaining, 0);
 
-/*
-   init64(tmp1,0,fuel_remaining);
-   init64(tmp2,0,100000ul);
-   mul64(tmp1,tmp2);
-
-   dte = tank.mpg();
-   init64(tmp2,0,dte);
-   div64(tmp1,tmp2); //something here does not work...
-
-   return tmp1[1];
-*/
-
    #if (CFG_UNITS == 2)
    //dte = (fuel_remaining * 100000) / tank.mpg(); //dont work, multiplied number gets too big
    dte = ((fuel_remaining * 1000) / tank.mpg()) * 100;
@@ -1315,11 +1172,6 @@ unsigned long getDTE(void){
    dte = (fuel_remaining * tank.mpg()) / 1000;
    #endif
    
-#if (UNO_MODIFICATIONS == 1)
-//Serial.println(fuel_remaining);
-//Serial.println(dte); 
-#endif
-
    return dte;
 } 
 
@@ -1330,18 +1182,7 @@ unsigned long getRNG(void){
    signed long fuel_capacity;
    fuel_capacity = parms[tankSizeIdx];
    fuel_capacity = MAX(parms[tankSizeIdx], 0);
-/*
-   init64(tmp1,0,fuel_remaining);
-   init64(tmp2,0,100000ul);
-   mul64(tmp1,tmp2);
-
-   dte = tank.mpg();
-   init64(tmp2,0,dte);
-   div64(tmp1,tmp2); //something here does not work...
-
-   return tmp1[1];
-*/
-
+   
    #if (CFG_UNITS == 2)
    //dte = (fuel_remaining * 100000) / tank.mpg(); //dont work, multiplied number gets too big
    rng = (parms[tankSizeIdx]/1000) * tank.mpg(); //* 100;
@@ -1349,10 +1190,6 @@ unsigned long getRNG(void){
    rng = (parms[tankSizeIdx]/1000) * tank.mpg();// / 1000;
    #endif
    
-   //Serial.println(parms[tankSizeIdx]);
-   //Serial.println(tank.mpg()); 
-   //Serial.println(rng);
-
    return rng;
 } 
 
@@ -1420,7 +1257,7 @@ void tDisplay( void * r){ //display trip functions.
    strcpy(&LCDBUF2[2], format(t->gallons()));
    
    strcpy(&LCDBUF1[8], " |");  
-   strcpy(&LCDBUF1[10], intformat(t->mph()));  //current.fuelCost()
+   strcpy(&LCDBUF1[10], format(t->fuelCost()) );  //current.fuelCost()
    //strcpy(&LCDBUF1[10], intformat(t->gallons()*  (current.fuelCost() / 1000)  );
    strcpy(&LCDBUF2[8], " p");
    strcpy(&LCDBUF2[10], format(t->mpg()));
@@ -1431,35 +1268,13 @@ void tDisplay( void * r){ //display trip functions.
    strcpy(&LCDBUF2[0], "Ga");
    strcpy(&LCDBUF2[2], format(t->gallons()));
    
-   strcpy(&LCDBUF1[8], " $");  
+   strcpy(&LCDBUF1[8], " $");  //fuel cust
    //strcpy(&LCDBUF1[10], intformat(t->mph()));
-   strcpy(&LCDBUF1[10], format(/* t->gallons() */ 1 * (t->fuelCost())  ));
+   strcpy(&LCDBUF1[10], format(t->fuelCost()) );
    strcpy(&LCDBUF2[8], " p");
    strcpy(&LCDBUF2[10], format(t->mpg()));
    #endif
-/*
-   #if (CFG_UNITS == 2)
-   strcpy(&LCDBUF1[0], "Sp");
-   strcpy(&LCDBUF1[2], intformat(t->mph()));
-   strcpy(&LCDBUF1[8], "LK");
-   strcpy(&LCDBUF1[10], format(t->mpg()));
 
-   strcpy(&LCDBUF2[0], "Km");
-   strcpy(&LCDBUF2[2], format(t->miles()));
-   strcpy(&LCDBUF2[8], "Li");
-   strcpy(&LCDBUF2[10], format(t->gallons()));
-   #else
-   strcpy(&LCDBUF1[0], "Sp");
-   strcpy(&LCDBUF1[2], intformat(t->mph()));
-   strcpy(&LCDBUF1[8], "MG");
-   strcpy(&LCDBUF1[10], format(t->mpg()));
-
-   strcpy(&LCDBUF2[0], "Mi");
-   strcpy(&LCDBUF2[2], format(t->miles()));
-   strcpy(&LCDBUF2[8], "Ga");
-   strcpy(&LCDBUF2[10], format(t->gallons()));
-   #endif
-   */
 }      
     
  
@@ -1480,13 +1295,7 @@ int memoryTest(){
  
 
 unsigned long instantmph(){  
-
-#if (useDebug)
-static int counter = 0;
-counter++;
-return counter; 
-#endif
-//unsigned long vssPulseTimeuS = (lastVSS1 + lastVSS2) / 2;
+  //unsigned long vssPulseTimeuS = (lastVSS1 + lastVSS2) / 2;
   unsigned long vssPulseTimeuS = instant.vssPulseLength/instant.vssPulses;
 
   init64(tmp1,0,1000000000ul);
@@ -1547,42 +1356,10 @@ unsigned long instantgph(){
   div64(tmp1,tmp2);
   init64(tmp2,0,instInjEnd-instInjStart);
   div64(tmp1,tmp2);
-  
-   
-  if (tmp1[1] == 0) {    
-    //start counting up
-    if (gphTimer == 0) {
-    gphTimer = millis2();
-    }
-    if ( (gphTimer + 500) > millis2() ) {
-    return (tmp1[1] / 10000)*10000; //make last digit to be 0 
-    } else {
-      return lastGoodGPH; 
-    }
-  
-  } //end of if tmp1[1] == 0, in other words, RPM no longer == 0;
-  
-  else {
-  lastGoodGPH = tmp1[1];
-  return tmp1[1]; 
-  }
-  
+  return tmp1[1];      
 }
 
-unsigned long instantrpm() {   
-
-//Pyt in instant RMPM 
-
-  //if tmp1 == 0, don't return 0 until counter has counted six times
-  // while x !< 6, 
-  // inside zero routine, x++
-  //else once its been at zero six times, 
-  //return the below return by formula
-  //if it isn't zero, you won't hit that block and below will return valid value. Also, if you return nothing it might stay put,. 
-  //otherwise, use a tempholder rpm, like "lastRpmGreaterThanZero was == (value)
-  //and when < 6, return lastRpmGreaterThanZero
-  //below will continue to executre when rpm > 0
-  
+unsigned long instantrpm(){      
   init64(tmp1,0,instInjCount);
   init64(tmp2,0,120000000ul);
   mul64(tmp1,tmp2);
@@ -1593,68 +1370,11 @@ unsigned long instantrpm() {
   init64(tmp2,0,instInjEnd-instInjStart);
   div64(tmp1,tmp2);
   
-  //here is what happens
-  // when fuel is cut, it goes to zero for .5 sec, 
-  // then after .5, it returns last known good
-  // it's SUPPOSED to return LNG for .5 sec, then return (which can be calculated) via tmp1....
-  // what if its a scope issue and it's always zero? Then would never get to showing zeroRPM, when would it hold and why hold for only .500? Remember
-  // it sticks on lastgood, then goest to actiev RPM.
-  // why do we have two versions of idleTimer? wft? Not static? 
- 
- Serial.println("----------------\nBefore starting zero RPM validation\ntmp1[1] (return value of RPM) is"); 
- Serial.println( (tmp1[1] / 10000)*10000  ); 
- 
-  if (tmp1[1] == 0) {    //if instant rpm is zero 
-     Serial.println("Condition tmp1[1] == zero true");
-    //start counting up
-    //if (idleTimer == 0) {  //Is idleTime zero or have we already started counting? If zero, set to now.
-    if (false) {
-    Serial.println("idleTimer");
-    Serial.println(idleTimer); 
-    Serial.println("== 0"); 
-         //set idletimer to 25, otherwise leave as 20
-    //idleTimer = millis2();    //sinze it's zero, this resets idleTimer to now. Starts our result counting towards .500
-    Serial.println("idleTimer was zero, not setting to millis2");
-    Serial.println(idleTimer); 
-    Serial.println("== 0"); 
-    }//       25       30       30       
-    if ( (idleTimer + 500) < millis2() ) {   //is the idleTimer more than .500 old yet? if yes, We want to return the zero-value tmp1[1]
-      Serial.println("idleTimer is old, please return 0\nidleTimer, millis2(), gap, (tmp1[1] / 10000)*10000 (what we're returning)"); 
- Serial.println(idleTimer); //old
- Serial.println(millis2());  //now 
- Serial.println(millis2() - idleTimer);
- Serial.println((tmp1[1] / 10000)*10000);  
-      //        30          25        5 = 30
-    return (tmp1[1] / 10000)*10000; //make last digit to be 0 -- this gets returned if idletimer is over 500 old. Should return zeri since we're in a tmp1[1] == 0. 
-    } else {      //else if idletimer + 500 < now, hold lastGoodRPM 
-Serial.println("idleTimer is YOUNG, please return 0\nidleTimer, gap, lastRPM (what we are returning)");
- Serial.println(idleTimer); //old
- Serial.println(millis2() - idleTimer);
- Serial.println(lastGoodRPM); 
- Serial.println("lastGoodRPM * 1000\nLastGoodRPM, returning small");     
- Serial.println(lastGoodRPM * 1000); 
- Serial.println(lastGoodRPM); 
-return lastGoodRPM;  //this else is (idleTimer + 500) < millis2. We want this to hapen when it's less than .5 old. But it's happening when it's OLDER than. 
-    }
-  
-  } //end of if tmp1[1] == 0, in other words, RPM no longer == 0, so we should return a fluctuating valid positive PRM
-  else { // else here means valid good RPM. Why do I have two idle timers? 
-  
-  Serial.println("Condition tmp1[1] == 0, FALSE, return rpm, set lastgoodRPM, reset idleTImer");
-  Serial.println("(tmp1[1] / 10000)*10000, lastGoodRPM");
-  Serial.println((tmp1[1] / 10000)*10000);
-  idleTimer = millis2();   //since we have a valid rpm, we will reset the idletimer and hit the if idletimer == 0. Reinitialize idleTimer
-  lastGoodRPM = (tmp1[1] / 10000)*10000;
-  Serial.println(lastGoodRPM);
-  return (tmp1[1] / 10000)*10000; //make last digit to be 0. Return the valid positive RPM. 
+  return (tmp1[1] / 10000)*10000; //make last digit to be 0
   //return tmp1[1];
-   }
 } 
 
 unsigned long Trip::miles(){ 
-#if (UNO_MODIFICATIONS == 1)
-  //return 123450 ;
-#endif
   init64(tmp1,0,vssPulses);
   init64(tmp2,0,1000);
   mul64(tmp1,tmp2);
@@ -1798,10 +1518,6 @@ void Trip::reset(){
 void Trip::update(Trip t) {
    if(t.vssPulses || t.injPulses) { 
       loopCount++;  //we call update once per loop
-#if (false) 
-Serial.println("loopCount++");
-Serial.println(loopCount);
-#endif
    }
    vssPulses += t.vssPulses;      
    vssPulseLength += t.vssPulseLength;
@@ -2000,14 +1716,14 @@ unsigned long rformat(char * val){
 
 boolean editParm(unsigned char parmIdx){
   #if (useDebug)
-  Serial.println("Edit Parms called"); 
-  Serial.println("setupRan");
-  Serial.println(setupRan); 
+  //Serial.println(("Edit Parms called"); 
+  //Serial.println(("setupRan");
+  //Serial.println((setupRan); 
   #endif
    setupRan = 1; 
   #if (useDebug) 
-  Serial.println("setupRan");
-  Serial.println(setupRan);
+  //Serial.println(("setupRan");
+  //Serial.println((setupRan);
   #endif
    unsigned long v = parms[parmIdx];
    unsigned char p=9;  //right end of 10 digit number
@@ -2101,23 +1817,23 @@ boolean editParm(unsigned char parmIdx){
   int softButton;
   softButton = analogRead (0);
   if (softButton < 60) { //reads zero 
-      Serial.println("Soft Right"); 
+      //Serial.println(("Soft Right"); 
             p++;
             if(p==12)p=0; 
   }
   else if (softButton < 200){  //reads 99
-      Serial.println("Soft Up");  
+      //Serial.println(("Soft Up");  
   }
   else if (softButton < 400){ //reads 255
-      Serial.println ("Soft Down");
+      //Serial.println( ("Soft Down");
   }
   else if (softButton < 600){ //reads 409
-      Serial.println("Soft Left"); 
+      //Serial.println(("Soft Left"); 
             p--;
             if(p==255)p=11;      
   }
   else if (softButton < 800){  //
-      Serial.println ("Soft Select");
+      //Serial.println( ("Soft Select");
   
              if(p==10){  //ok selected
                 parms[parmIdx]=rformat(fmtv);
@@ -2162,11 +1878,8 @@ unsigned long millis2(){
 
 void delay2(unsigned long ms){
 	unsigned long start = millis2();
-        if (ms == screenDelay) {
-        maxDelay = screenDelay; 
-	}  
         while (millis2() - start < ms);
-        
+        maxDelay = MAX(maxDelay, ms);      
 }
 
 /* Delay for the given number of microseconds.  Assumes a 16 MHz clock. 
@@ -2256,8 +1969,8 @@ void Drag::reset()
    vss_400m = (parms[dragDistance] * parms[vssPulsesPerMileIdx]) / 5280;// 0.4;
    //drag_distance = parms[dragDistance];
    #endif
-   Serial.println("vss_400m"); 
-   Serial.println(vss_400m); 
+   //Serial.println(("vss_400m"); 
+   //Serial.println((vss_400m); 
 }
 
 void Drag::start()
@@ -2274,12 +1987,9 @@ void Drag::update()
    if( vss_pulses >= vss_400m ) {
      Drag::finish(); 
    }
-   //every 100ms check if we got 100km/h
-   // update is called from interrupt and we cannot call it too often - timer runs slower then
-   //else if(time_100kmh_ms == 0 && (millis2() % 100) == 0 ) 
       if (time_100kmh_ms == 0) {
       speed = instantmph();
-      if(speed >= (parms[dragSpeed] * 1000)) {
+      if(speed >= (parms[dragSpeed] * 1000)) { //is this necessary here AND in trap_speed? 
       time_100kmh_ms = millis2() - time_millis;
       }
    }
@@ -2316,9 +2026,6 @@ unsigned long Drag::distance()
 #endif
   
   return drag_distance * 1000; 
-  //return ( (2052 * 5280) / parms[vssPulsesPerMileIdx]); 
-  //return (vss_pulses * 5280) / parms[vssPulsesPerMileIdx];
-  //return drag_distance; 
 }
 
 unsigned long Drag::time100kmh()
@@ -2356,7 +2063,6 @@ Hp = Math.pow(trap_mh/234, 3) * weight_lbs;
    weight /= 0.45359237;
    #endif
 
-   //temp1 = pow(trap_spd/234000, 3); //pow adds more than 1000bytes!
    temp1 = (trap_spd/234000);
    temp1 = (temp1 * temp1 * temp1) * weight;
    
