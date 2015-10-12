@@ -1128,8 +1128,6 @@ void doDisplaySystemInfo(void) {
 
    /* plot bars */
    for(i=8; i>0; i--) {
-      //if(PERIODIC_HIST[i-1] > BAR_LIMIT) PERIODIC_HIST[i-1] = BAR_LIMIT;
-      /* limit size -- print oldest first */
       temp = MAX((signed short)(PERIODIC_HIST[i-1] - BAR_MIN), 0);
       stemp = MIN(temp, BAR_LIMIT);
 
@@ -1150,10 +1148,14 @@ void doDisplaySystemInfo(void) {
 
    /* end of line 1: show current mpg */
    LCDBUF1[8] = ' ';
-   //LCDBUF1[9] = 'C';
-   //strcpy(&LCDBUF1[10], format(current.mpg()));
-   LCDBUF1[9] = 'i';
-   strcpy(&LCDBUF1[10], format(instantmpg()));
+    if(instantrpm() > 0 && instant.vssPulses == 0) {
+      LCDBUF1[9] = 'g';
+      strcpy(&LCDBUF1[10], format(instantgph()));
+    }
+    else {
+      LCDBUF1[9] = 'i';
+      strcpy(&LCDBUF1[10], format(instantmpg()));
+    }
 
    /* end of line 2: show periodic mpg */
    LCDBUF2[8] = ' ';

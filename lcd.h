@@ -1,6 +1,6 @@
 // --------------- constants --------------------
 
-#define UNO_MODIFICATIONS          1 //0 for default mpguino, 1 for newfangled lcd+buttons shield
+#define UNO_MODIFICATIONS          0 //0 for default mpguino, 1 for newfangled lcd+buttons shield
 
 #define LcdCharHeightPix  8 
 #if (UNO_MODIFICATIONS == 1)

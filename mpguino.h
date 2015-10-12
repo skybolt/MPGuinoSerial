@@ -127,7 +127,7 @@ unsigned char FCUT_POS;
   char spinner[4] = {'|', '/', '-', '\\'};
   #elif (CFG_FUELCUT_INDICATOR == 3)
 //char spinner[4] = {'O', 'o', '.', '.'};
-  char spinner[4] = {'x', '+', '*', '+'};
+  char spinner[4] = {'*', '+', '*', 'x'};
   char idler[2] = {'i', ' '};
   #endif
 #endif
