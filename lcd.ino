@@ -112,7 +112,7 @@ void LCD::LcdCommandWrite(unsigned char value){
   value=pushNibble(value);      
   cmdWriteSet();       
   tickleEnable();       
-  delay2(3);       
+  delay2(3);  
 }       
  
 void LCD::LcdDataWrite(unsigned char value){       

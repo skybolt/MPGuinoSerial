@@ -7,7 +7,7 @@
 #include "mpguino.h"
 #include "lcd.h"
 
-#if( SLEEP_CFG == 3 )
+#if( SLEEP_CFG == 3 ) 
 #include <avr/sleep.h>
 #endif
 
@@ -626,6 +626,14 @@ void loop (void) {
          #endif
       }
       #endif
+      
+      if (    (instant.injPulses >  0) 
+           && (instant.vssPulses == 0) 
+         ) 
+      {
+      //LCDBUF1[FCUT_POS] = 'i';
+      LCDBUF1[FCUT_POS] = idler[CLOCK & 0x01];
+      }
 
       /* --- ensure that we have terminating nulls */
       LCDBUF1[16] = 0;
@@ -676,9 +684,9 @@ void loop (void) {
          // left is rotate through screens to the left      
          if (SCREEN!=0) {
              SCREEN--;
-             if (SCREEN == dragSceenIdx) {
-               delay2(600); 
-             }
+             /*if (SCREEN == dragSceenIdx) {
+               delay2(screenDelay); 
+             }*/
          }
          else {
             SCREEN=displayFuncSize-1;      
@@ -709,9 +717,9 @@ void loop (void) {
          // right is rotate through screens to the right     
          SCREEN=(SCREEN+1)%displayFuncSize;      
          LCD::print(getStr(displayFuncNames[SCREEN])); 
-         if (SCREEN == dragSceenIdx) {
-               delay2(600); 
-             }
+         /*if (SCREEN == dragSceenIdx) {
+               delay2(screenDelay); 
+             }*/
       }      
 
       #if (CFG_IDLE_MESSAGE == 1)
@@ -759,7 +767,7 @@ void loop (void) {
          if(SCREEN == dragSceenIdx) {
             myDrag.reset();   
             LCD::print(getStr(PSTR("DragRace Reset"))); 
-            delay2(125);  
+            //delay2(125);  
          } else
          #endif
          {
@@ -804,19 +812,18 @@ void loop (void) {
    LASTLOOPLENGTH = elapsedMicroseconds(loopStart);   
    MAXLOOPLENGTH = MAX(MAXLOOPLENGTH, elapsedMicroseconds(loopStart));
    
-   //if (myDrag.running || myDrag.waiting_start) {
-     if (SCREEN == dragSceenIdx) {
+   if (myDrag.running || myDrag.waiting_start) {
+   //  if (SCREEN == dragSceenIdx) {
    }
    
    else {
-     
    while (elapsedMicroseconds(loopStart) < (looptime)) {
       // wait for the end of the loop to arrive (default was .5, calcualte from header values)
       // if this number is less than millis2() - loopStart, loops will not be delayed
       continue;
-   }
+           }
    
-   }
+       }
 
    CLOCK++;
 
@@ -982,8 +989,8 @@ void doDisplayEOCIdleData() {
    displayTripCombo("eC",0,current.eocMiles(), "iL",0,current.idleGallons(),
                     "eT",0,tank.eocMiles(),    "iL",0,tank.idleGallons());
    #else
-   displayTripCombo("iC",0,current.idleGallons(), "eC",0,current.eocMiles(),
-                    "iT",0,tank.idleGallons(),    "eT",0,tank.eocMiles());
+   displayTripCombo("iC",0,current.idleGallons(), "e",0,current.eocMiles(),
+                    "iT",0,tank.idleGallons(),    "e",0,tank.eocMiles());
    #endif
 }      
 
@@ -1094,9 +1101,10 @@ void doDisplaySystemInfo(void) {
    /* display max cpu utilization and ram */
    strcpy(&LCDBUF1[0], "MxL ");
    strcpy(&LCDBUF1[4], intformat(   MAXLOOPLENGTH-(maxDelay*1000)      ,4));
-   strcpy(&LCDBUF1[8], " LsL");
-   strcpy(&LCDBUF1[11], intformat    ((/*LASTLOOPLENGTH*/1000000/(LASTLOOPLENGTH/1000)),5)   );  
-   Serial.println(MAXLOOPLENGTH); 
+   strcpy(&LCDBUF1[8], " Ls");
+   //strcpy(&LCDBUF1[11], intformat    ((/*LASTLOOPLENGTH*/1000000/(LASTLOOPLENGTH/1000)),5)   );  
+   strcpy(&LCDBUF1[11], intformat    (( (LASTLOOPLENGTH)),5)   );  
+   Serial.println(LASTLOOPLENGTH); 
    Serial.println(maxDelay * 1000); 
 
    unsigned long mem = memoryTest();      
@@ -1312,10 +1320,6 @@ unsigned long instantmph(){
 unsigned long instantmpg(){     
   unsigned long imph=instantmph();
   unsigned long igph=instantgph();
-  
-#if (useDebug)
-return 12345; 
-#endif
 
 #if(CFG_UNITS==2) // km
   if(imph == 0) return 999999000;
@@ -1877,6 +1881,8 @@ unsigned long millis2(){
 }
 
 void delay2(unsigned long ms){
+        //Serial.println("delay2 called, ..."); 
+        //Serial.println(ms); 
 	unsigned long start = millis2();
         while (millis2() - start < ms);
         maxDelay = MAX(maxDelay, ms);      

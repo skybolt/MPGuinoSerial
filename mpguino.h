@@ -70,9 +70,9 @@
 
 // how many times will we try and loop in a second
 #if (UNO_MODIFICATIONS == 1)
-#define loopsPerSecond                         1
+#define loopsPerSecond                         2
 #else
-#define loopsPerSecond                         1   
+#define loopsPerSecond                         2   
 #endif
 /* --- LCD line buffer size --- */
 #define bufsize                                17
@@ -128,6 +128,7 @@ unsigned char FCUT_POS;
   #elif (CFG_FUELCUT_INDICATOR == 3)
 //char spinner[4] = {'O', 'o', '.', '.'};
   char spinner[4] = {'x', '+', '*', '+'};
+  char idler[2] = {'i', ' '};
   #endif
 #endif
 
