@@ -951,19 +951,19 @@ void doDisplayCustom() {
 void doDisplayCarSensors() {
 #if (BATTERY_VOLTAGE == 1)
    #if (CFG_UNITS == 2)
-   displayTripCombo("V ",0,batteryVoltage(), "Spd",1,instantmph(),
-                    "Lh",0,instantgph(),     "RPM",1,instantrpm());
+   displayTripCombo("v ",0,batteryVoltage(), "spd",1,instantmph(),
+                    "Lh",0,instantgph(),     "rpm",1,instantrpm());
    #else
-   displayTripCombo("V ",0,batteryVoltage(), "Spd",1,instantmph(),
-                    "Gh",0,instantgph(),     "RPM",1,instantrpm());
+   displayTripCombo("v ",0,batteryVoltage(), "spd",1,instantmph(),
+                    "gh",0,instantgph(),     "rpm",1,instantrpm()+100000);
    #endif
 #else
    #if (CFG_UNITS == 2)
-   displayTripCombo("CT",0,current.time(), "Spd",1,instantmph(),
-                    "Lh",0,instantgph(),   "RPM",1,instantrpm());
+   displayTripCombo("CT",0,current.time(), "spd",1,instantmph(),
+                    "Lh",0,instantgph(),   "rpm",1,instantrpm());
    #else
-   displayTripCombo("CT",0,current.time(), "Spd",1,instantmph(),
-                    "Gh",0,instantgph(),   "RPM",1,instantrpm());
+   displayTripCombo("CT",0,current.time(), "spd",1,instantmph(),
+                    "gh",0,instantgph(),   "rpm",1,instantrpm());
    #endif
 #endif
 }
