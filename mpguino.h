@@ -1,3 +1,4 @@
+#include "mpguino_conf.h"
 /* --- Constants --------------------------------------------- */
 
 #define Sleep_bkl                           0x01
