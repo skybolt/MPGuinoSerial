@@ -616,7 +616,7 @@ void loop (void) {
       #if (CFG_FUELCUT_INDICATOR != 0)
       /* --- insert visual indication that fuel cut is happening */
       if (    (instantrpm() == 0)
-           && (instant.vssPulses >  0) 
+           && (instant.vssPulses > 0) 
          ) 
       {
          #if (CFG_FUELCUT_INDICATOR == 1)
@@ -627,11 +627,10 @@ void loop (void) {
       }
       #endif
       
-      if (    (instant.injPulses >  0) 
+      if (    (instant.injPulses  > 0) 
            && (instant.vssPulses == 0) 
          ) 
       {
-      //LCDBUF1[FCUT_POS] = 'i';
       LCDBUF1[FCUT_POS] = idler[CLOCK & 0x01];
       }
 

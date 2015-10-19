@@ -127,7 +127,7 @@ unsigned char FCUT_POS;
   char spinner[4] = {'|', '/', '-', '\\'};
   #elif (CFG_FUELCUT_INDICATOR == 3)
 //char spinner[4] = {'O', 'o', '.', '.'};
-  char spinner[4] = {'*', '+', '*', 'x'};
+  char spinner[4] = {'-', '+', '÷', '*'};
   char idler[2] = {'i', ' '};
   #endif
 #endif
@@ -148,9 +148,9 @@ unsigned short BAR_LIMIT = 1100;  /* 3-11 L/100km (0.5 L/px) */
 //unsigned short BAR_LIMIT = 700;  /* 3-7 L/100km (0.25 L/px) */
 //#define BARGRAPH_LABEL "Graph 3-7L/100km" //max 16 chars
 #else
-unsigned short BAR_MIN = 0000; //min 18 mpg
-unsigned short BAR_LIMIT = 3000;  /* 18-58 mpg (2.5 mpg/px) */
-#define BARGRAPH_LABEL "Graph 00-30 MPG" //max 16 chars
+unsigned short BAR_MIN = 1000; //min 18 mpg
+unsigned short BAR_LIMIT = 4000;  /* 18-58 mpg (2.5 mpg/px) */
+#define BARGRAPH_LABEL "Graph 10-25-40 MPG" //max 16 chars
 #endif
 
 #endif
