@@ -1,6 +1,8 @@
 /* --- Compile-time options ---------------------------------- */
 #define ATMEGA328 1
 
+#define UNO_MODIFICATIONS          0 //0 for default mpguino, 1 for newfangled lcd+buttons shield
+
 #if ATMEGA328 == 1
    #define BARGRAPH_DISPLAY_CFG       1  /* 0=Off 1=On (+968 bytes) */
    #define CFG_BIGFONT_TYPE           0  /* 0=BigNum screens off(-552) 1=Default 2=Modified (+24 bytes) */

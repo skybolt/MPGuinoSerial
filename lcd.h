@@ -1,7 +1,6 @@
+#include "mpguino_conf.h"
+
 // --------------- constants --------------------
-
-#define UNO_MODIFICATIONS          0 //0 for default mpguino, 1 for newfangled lcd+buttons shield
-
 #define LcdCharHeightPix  8 
 #if (UNO_MODIFICATIONS == 1)
  #define DIPin             8 // register select RS, meelis 4, arduino default 12, new lcd 8 
