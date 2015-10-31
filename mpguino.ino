@@ -97,7 +97,7 @@ static unsigned long tmp3[2];
 
 //middle button cycles through these brightness settings      
 //unsigned char brightness[]={255,220,150,10}; // moved to mpguino.h
-unsigned char brightnessIdx=1;
+unsigned char brightnessIdx=3;
 
 #define brightnessLength (sizeof(brightness)/sizeof(unsigned char)) //array size
 
@@ -354,7 +354,11 @@ void setup (void) {
    unsigned char x = 0;
 
    CLOCK = 0;
+   #if UNO_MODIFICATIONS == 1
+   SCREEN = 7;
+   #else 
    SCREEN = 5;
+   #endif
    #if (useDebug)
    SCREEN = 3;
    #endif
@@ -514,8 +518,8 @@ void loop (void) {
       #endif
 
       #if (BARGRAPH_DISPLAY_CFG == 1)
-      /* --- For bargraph: reset periodic every n seconds */
-      if (periodic.loopCount / loopsPerSecond >= 60) {
+      /* --- For bargraph: reset periodic every n seconds, where n = loopcount / loopspersec, so 60 is 30 seconds */
+      if (periodic.loopCount / loopsPerSecond >= 30) {
          temp = MIN((periodic.mpg()/10), 0xFFFF);
          /* add temp into first element and shift items in array */
          insert((int*)PERIODIC_HIST, (unsigned short)temp, mylength(PERIODIC_HIST), 0);
@@ -564,7 +568,10 @@ void loop (void) {
             current.update(instant); 
             tank.update(instant); 
             #if (BARGRAPH_DISPLAY_CFG == 1)
+            #if (false) 
+            #else
             periodic.reset();
+            #endif
             periodic.update(instant);
             #endif
          }
@@ -631,7 +638,7 @@ void loop (void) {
            && (instant.vssPulses == 0) 
          ) 
       {
-      LCDBUF1[FCUT_POS] = idler[CLOCK & 0x01];
+      LCDBUF1[FCUT_POS] = spinner[CLOCK & 0x03];
       }
 
       /* --- ensure that we have terminating nulls */
@@ -654,7 +661,6 @@ void loop (void) {
       else {
          LCD::LcdCommandWrite(LCD_ReturnHome); 
       }
-      
       
       /* --- see if any buttons were pressed, display a brief message if so --- */
       if (LeftButtonPressed && RightButtonPressed) {
@@ -816,7 +822,7 @@ void loop (void) {
    }
    
    else {
-   while (elapsedMicroseconds(loopStart) < (looptime)) {
+   while (elapsedMicroseconds(loopStart) < (looptime * 1)) {
       // wait for the end of the loop to arrive (default was .5, calcualte from header values)
       // if this number is less than millis2() - loopStart, loops will not be delayed
       continue;
@@ -1010,7 +1016,7 @@ void doDisplayInstantCurrent() {
    //displayTripCombo(mBuff,0,impg,  "Spd",1,instantmph(),
    //                 "Cm",0,current.mpg(), "D",0,current.miles());
    displayTripCombo(mBuff,0,impg,  "RNG",1,getRNG(),
-                    "Cm",0,current.mpg(), "Fu",0,current.gallons());
+                    "Cm",0,current.mpg(), "Fu",0,tank.gallons());
 }      
 
 void doDisplayInstantTank() {
@@ -1115,6 +1121,7 @@ void doDisplaySystemInfo(void) {
 #if (BARGRAPH_DISPLAY_CFG == 1)
    void doDisplayBarGraph(void) {
    signed short temp = 0;
+   signed short mpg_temp = 0; 
    unsigned char i = 0;
    unsigned char j = 0;
    unsigned short stemp = 0;
@@ -1127,24 +1134,26 @@ void doDisplaySystemInfo(void) {
 
    /* plot bars */
    for(i=8; i>0; i--) {
-      temp = MAX((signed short)(PERIODIC_HIST[i-1] - BAR_MIN), 0);
-      stemp = MIN(temp, BAR_LIMIT);
 
-      /* convert to a number from 0-16 */
-      temp = (signed short)( (stemp*16) / ((BAR_LIMIT-BAR_MIN)/10) );
-      temp = (temp+5)/10; //round
-      temp = MIN(temp, 16);  /* should not be necessary... */
-      #if (false)
-      temp = temp+1;
-      //Serial.println(temp); 
-      #endif
+      temp = MAX((signed short)(PERIODIC_HIST[i-1] - BAR_MIN), 0); //at least x or bar low
+      //temp = random(100, BAR_LIMIT); 
+      stemp = MIN(temp, BAR_LIMIT); //not more than x or bar_high
+      
+      
+      temp = (signed short)    ( (stemp*16) / ((BAR_LIMIT-BAR_MIN)/10) ); //convert to 0-160, or 1000 * 16 (16000 / (2000) 
+      temp = (temp+5)/10; //round, /10 (so 160 = 16, etc).   
+      //temp = random(0, 128);  
+      //temp = temp + 1; 
+      //stemp = temp;
+      temp = MIN(temp, 16);  //not more than ...
+      temp = MAX(temp,  0);  //at least ... 
       /* line 1 graph */
       LCDBUF1[j] = ascii_barmap[MAX(temp-8,0)];
       /* line 2 graph */
       LCDBUF2[j] = ascii_barmap[MIN(temp,8)];
       j++;
    }
-
+   
    /* end of line 1: show current mpg */
    LCDBUF1[8] = ' ';
     if(instantrpm() > 0 && instant.vssPulses == 0) {
@@ -1154,10 +1163,52 @@ void doDisplaySystemInfo(void) {
     else {
       LCDBUF1[9] = 'i';
       strcpy(&LCDBUF1[10], format(instantmpg()));
+      //mpg_temp = instantmpg(); 
     }
+    
+       //do this next routine for current mapped to fluctuating bar
+        //temp = instant.mpg(); 
+        //unsigned long mpg_temp = 0;
+        //signed short 
+        mpg_temp = instantmpg();  
+        //mpg_temp = instantmpg(); 
+        Serial.print("mpg_temp = instantmpg(); mpg_temp = ");
+        Serial.println(mpg_temp);
+        Serial.print("instantmpg/10 = ");
+        mpg_temp = mpg_temp/10; 
+        Serial.println(mpg_temp); 
+        mpg_temp = mpg_temp - BAR_MIN;//  / (BAR_LIMIT-BAR_MIN)/1;
+        Serial.print("mpg_temp = mpg_temp - BAR_MIN; mpg_temp = ");
+        Serial.println(mpg_temp);
+        Serial.print("BAR_LIMIT = "); 
+        Serial.print(BAR_LIMIT);
+        Serial.print(", BAR_MIN = ");
+        Serial.println(BAR_MIN); 
+        Serial.print("BAR_LIMIT - BAR_MIN = ");
+        Serial.println(BAR_LIMIT - BAR_MIN); 
+        Serial.print("mpg_temp = "); 
+        Serial.println(mpg_temp); 
+        mpg_temp = (( mpg_temp * 10 ) / ((BAR_LIMIT - BAR_MIN)/10 ) ); 
+        Serial.println(mpg_temp);
+        Serial.print("(mpg_temp * 16) / 100, = ");
+        mpg_temp = (mpg_temp * 16) / 10; 
+        Serial.println(mpg_temp); 
+        mpg_temp = (mpg_temp+5)/10; //round, /10 (so 160 = 16, etc). 
+        Serial.print("after round and /10, "); 
+        Serial.println(mpg_temp); 
+//        Serial.println("(temp+5)/1");
+//        Serial.println(temp);        
+        mpg_temp = MIN(mpg_temp, 16);  //not more than ...
+//        Serial.println("not more than 16");
+//        Serial.println(temp);       
+        mpg_temp = MAX(mpg_temp,  0);  //at least ... 
+//        Serial.println("at least 0");
+//        Serial.println(temp);       
+        LCDBUF1[8] = ascii_barmap[MAX(mpg_temp-8,0)];
+        LCDBUF2[8] = ascii_barmap[MIN(mpg_temp,8)];
 
    /* end of line 2: show periodic mpg */
-   LCDBUF2[8] = ' ';
+   //LCDBUF2[8] = ' ';
    LCDBUF2[9] = 'p';
    strcpy(&LCDBUF2[10], format(periodic.mpg()));
 
@@ -1314,13 +1365,18 @@ unsigned long instantmph(){
   mul64(tmp1,tmp2);
   init64(tmp2,0,vssPulseTimeuS);
   div64(tmp1,tmp2);
-
+   
   return tmp1[1];
 }
 
+
 unsigned long instantmpg(){     
+  
   unsigned long imph=instantmph();
   unsigned long igph=instantgph();
+  #if UNO_MODIFICATIONS
+  return random(0, 50000);
+  #endif
 
 #if(CFG_UNITS==2) // km
   if(imph == 0) return 999999000;
@@ -2032,7 +2088,7 @@ unsigned long Drag::distance()
   drag_distance = (drag_pulses * 5280) / parms[vssPulsesPerMileIdx];
 #endif
   
-  return drag_distance * 1000; 
+  return (drag_distance * 1000) + 1000; 
 }
 
 unsigned long Drag::time100kmh()
