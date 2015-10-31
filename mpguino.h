@@ -129,7 +129,7 @@ unsigned char FCUT_POS;
   #elif (CFG_FUELCUT_INDICATOR == 3)
 //char spinner[4] = {'O', 'o', '.', '.'};
   //char spinner[4] = {'-', '+', '÷', '*'};
-  char spinner[4] = {'+', '*', '+', '*'};
+  char spinner[4] = {'+', '*', '+', '-'};
   char idler[2] = {'i', ' '};
   #endif
 #endif

@@ -821,14 +821,15 @@ void loop (void) {
    //  if (SCREEN == dragSceenIdx) {
    }
    
-   else {
-   while (elapsedMicroseconds(loopStart) < (looptime * 1)) {
+   //short iRpm = instantrpm(); 
+   else if (instantrpm() <= 2500 * 1000) {
+      while (elapsedMicroseconds(loopStart) < (looptime * 1)) {
       // wait for the end of the loop to arrive (default was .5, calcualte from header values)
       // if this number is less than millis2() - loopStart, loops will not be delayed
       continue;
-           }
+   }
    
-       }
+  }
 
    CLOCK++;
 
@@ -1120,6 +1121,7 @@ void doDisplaySystemInfo(void) {
 
 #if (BARGRAPH_DISPLAY_CFG == 1)
    void doDisplayBarGraph(void) {
+   unsigned short impg = instantmpg(); 
    signed short temp = 0;
    signed short mpg_temp = 0; 
    unsigned char i = 0;
@@ -1135,16 +1137,12 @@ void doDisplaySystemInfo(void) {
    /* plot bars */
    for(i=8; i>0; i--) {
 
-      temp = MAX((signed short)(PERIODIC_HIST[i-1] - BAR_MIN), 0); //at least x or bar low
-      //temp = random(100, BAR_LIMIT); 
+      temp = MAX((signed short)(PERIODIC_HIST[i-1] - BAR_MIN), 0); //at least x or bar low 
       stemp = MIN(temp, BAR_LIMIT); //not more than x or bar_high
       
       
       temp = (signed short)    ( (stemp*16) / ((BAR_LIMIT-BAR_MIN)/10) ); //convert to 0-160, or 1000 * 16 (16000 / (2000) 
       temp = (temp+5)/10; //round, /10 (so 160 = 16, etc).   
-      //temp = random(0, 128);  
-      //temp = temp + 1; 
-      //stemp = temp;
       temp = MIN(temp, 16);  //not more than ...
       temp = MAX(temp,  0);  //at least ... 
       /* line 1 graph */
@@ -1162,7 +1160,8 @@ void doDisplaySystemInfo(void) {
     }
     else {
       LCDBUF1[9] = 'i';
-      strcpy(&LCDBUF1[10], format(instantmpg()));
+      //strcpy(&LCDBUF1[10], format(instantmpg()));
+      strcpy(&LCDBUF1[10], format(impg));
       //mpg_temp = instantmpg(); 
     }
     
@@ -1170,7 +1169,8 @@ void doDisplaySystemInfo(void) {
         //temp = instant.mpg(); 
         //unsigned long mpg_temp = 0;
         //signed short 
-        mpg_temp = instantmpg();  
+        //mpg_temp = instantmpg();
+        mpg_temp = impg;  
         //mpg_temp = instantmpg(); 
         Serial.print("mpg_temp = instantmpg(); mpg_temp = ");
         Serial.println(mpg_temp);
@@ -2087,8 +2087,13 @@ unsigned long Drag::distance()
 #else
   drag_distance = (drag_pulses * 5280) / parms[vssPulsesPerMileIdx];
 #endif
-  
+
+  if ( waiting_start ) {
+    return (drag_distance * 1000);
+  }
+  else {
   return (drag_distance * 1000) + 1000; 
+  }
 }
 
 unsigned long Drag::time100kmh()
