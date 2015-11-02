@@ -2,7 +2,7 @@
 #define ATMEGA328 1
 
 #define UNO_MODIFICATIONS             1 //0 for default mpguino, 1 for newfangled lcd+buttons shield
-#define MEMORY_SAVER                  1 //1 to disable lots of items, 0 to leave them enabled
+#define MEMORY_HOG                    1 //1 to run nomrally, 0 to disable things to try and save memory
 
 #if ATMEGA328 == 1
    #define BARGRAPH_DISPLAY_CFG       1  /* 0=Off 1=On (+968 bytes) */

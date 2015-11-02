@@ -284,7 +284,7 @@ volatile boolean lastVssFlop = vssFlop;
 //attach the vss/buttons interrupt      
 ISR(PCINT1_vect) {    
 #if (useDebug)
-   //Serial.println(("PCINT1_vect"); 
+   Serial.println(("PCINT1_vect"); 
 #endif
    static unsigned char vsspinstate=0;      
    unsigned char p = PINC;//bypassing digitalRead for interrupt performance      
@@ -320,25 +320,22 @@ ISR(PCINT1_vect) {
  
  
 pFunc displayFuncs[] ={ 
-//   doDisplayCustom,  /
    doDisplayInstantCurrent, //0
    doDisplayInstantTank,  //1
    #if CFG_BIGFONT_TYPE > 0  
-   doDisplayBigInstant,   //
-   //doDisplayBigCurrent,   //
+   doDisplayBigInstant,     //
    doDisplayBigSpeed,     //
-   //doDisplayBigTank, 
-   #endif
    doDisplayCurrentTripData, //2
-   doDisplayTankTripData,    //3
-   doDisplayEOCIdleData,     //4
-   doDisplaySystemInfo,      //5
-   doDisplayCarSensors,      //6
+   #endif
+   doDisplayTankTripData,    //3  2
+   doDisplayEOCIdleData,     //4  3
+   doDisplaySystemInfo,      //5  4
+   doDisplayCarSensors,      //6  5
    #if (BARGRAPH_DISPLAY_CFG == 1)
-   doDisplayBarGraph,        //7
+   doDisplayBarGraph,        //7  6
    #endif
    #if (DRAGRACE_DISPLAY_CFG)
-   doDisplayDragRace,        //8
+   doDisplayDragRace,        //8  7
    #endif 
 };      
 
@@ -355,7 +352,7 @@ void setup (void) {
 
    CLOCK = 0;
    #if UNO_MODIFICATIONS == 1
-   SCREEN = 7;
+   SCREEN = 4;
    #else 
    SCREEN = 5;
    #endif
@@ -378,11 +375,10 @@ void setup (void) {
    displayFuncNames[x++]=  PSTR("BIG Instant"); 
    //displayFuncNames[x++]=  PSTR("BIG Current"); 
    displayFuncNames[x++]=  PSTR("BIG Speed");
-   //displayFuncNames[x++]=  PSTR("BIG Tank"); 
+   //displayFuncNames[x++]=  PSTR("BIG Tank");
+   displayFuncNames[x++]=  PSTR("Current");  
    #endif
-   displayFuncNames[x++]=  PSTR("Current"); 
    displayFuncNames[x++]=  PSTR("Tank"); 
-   
    #if (CFG_UNITS == 2)
    displayFuncNames[x++]=  PSTR("EOC km/Idle Litr");
    #else
@@ -448,7 +444,7 @@ void setup (void) {
    #endif
 
    delay2(1500);
-   maxDelay = 0;    
+   maxDelay = 0;
 } /* void setup (void) */
  
 void loop (void) {
@@ -929,9 +925,10 @@ char *getStr(prog_char * str) {
 } 
 
 #if (OUTSIDE_TEMP_CFG == 1) 
-void doDisplayCustom() { 
-   displayTripCombo("Im",0,instantmpg(), "t",0,OUTSIDE_TEMP_FILT,
-                    "GH",0,instantgph(), "m",0,current.mpg());
+void doDisplayCustom() {
+  
+     displayTripCombo("Im",0,instantmpg(), "t",0,OUTSIDE_TEMP_FILT,
+                      "GH",0,instantgph(), "m",0,current.mpg());
 }      
 #else
 void doDisplayCustom() {
@@ -947,21 +944,24 @@ void doDisplayCustom() {
       mBuff = "Gh";
     #endif
   }
-   //doDisplayCustom
-  //displayTripCombo("Im",0,instantmpg(),  "T",0,current.time(),
-  displayTripCombo(mBuff,0,impg,  "T",0,current.time(),
+
+  displayTripCombo  (mBuff,0,impg,  "T",0,current.time(),
                    "Cm",0,current.mpg(), "$",0,current.fuelCost());
 }      
 #endif
 
 void doDisplayCarSensors() {
+  int mod = 100000;
+  if (instantrpm() < 500) {
+    mod = 0; 
+  }
 #if (BATTERY_VOLTAGE == 1)
    #if (CFG_UNITS == 2)
    displayTripCombo("v ",0,batteryVoltage(), "spd",1,instantmph(),
                     "Lh",0,instantgph(),     "rpm",1,instantrpm());
    #else
    displayTripCombo("v ",0,batteryVoltage(), "spd",1,instantmph(),
-                    "gh",0,instantgph(),     "rpm",1,instantrpm()+100000);
+                    "gh",0,instantgph(),     "rpm",1,instantrpm()+mod);
    #endif
 #else
    #if (CFG_UNITS == 2)
@@ -1089,7 +1089,7 @@ void doDisplayBigTank()    {
    bigNum(tank.mpg(),"Tank","MPG");
    #endif
 }
-#endif
+
 
 void doDisplayCurrentTripData(void) {
    /* display current trip formatted data */
@@ -1097,6 +1097,7 @@ void doDisplayCurrentTripData(void) {
    //How about: x$?         Mi
    //           xMpg?       Fu/Gal
 }   
+#endif
 
 void doDisplayTankTripData(void) {
    /* display tank trip formatted data */
@@ -1110,8 +1111,8 @@ void doDisplaySystemInfo(void) {
    strcpy(&LCDBUF1[8], " Ls");
    //strcpy(&LCDBUF1[11], intformat    ((/*LASTLOOPLENGTH*/1000000/(LASTLOOPLENGTH/1000)),5)   );  
    strcpy(&LCDBUF1[11], intformat    (( (LASTLOOPLENGTH)),5)   );  
-   Serial.println(LASTLOOPLENGTH); 
-   Serial.println(maxDelay * 1000); 
+   /*Serial.println(LASTLOOPLENGTH); 
+   Serial.println(maxDelay * 1000); */
 
    unsigned long mem = memoryTest();      
    mem*=1000;      
@@ -1160,50 +1161,18 @@ void doDisplaySystemInfo(void) {
     }
     else {
       LCDBUF1[9] = 'i';
-      //strcpy(&LCDBUF1[10], format(instantmpg()));
       strcpy(&LCDBUF1[10], format(impg));
-      //mpg_temp = instantmpg(); 
     }
     
-       //do this next routine for current mapped to fluctuating bar
-        //temp = instant.mpg(); 
-        //unsigned long mpg_temp = 0;
-        //signed short 
-        //mpg_temp = instantmpg();
+
         mpg_temp = impg;  
-        //mpg_temp = instantmpg(); 
-        Serial.print("mpg_temp = instantmpg(); mpg_temp = ");
-        Serial.println(mpg_temp);
-        Serial.print("instantmpg/10 = ");
         mpg_temp = mpg_temp/10; 
-        Serial.println(mpg_temp); 
         mpg_temp = mpg_temp - BAR_MIN;//  / (BAR_LIMIT-BAR_MIN)/1;
-        Serial.print("mpg_temp = mpg_temp - BAR_MIN; mpg_temp = ");
-        Serial.println(mpg_temp);
-        Serial.print("BAR_LIMIT = "); 
-        Serial.print(BAR_LIMIT);
-        Serial.print(", BAR_MIN = ");
-        Serial.println(BAR_MIN); 
-        Serial.print("BAR_LIMIT - BAR_MIN = ");
-        Serial.println(BAR_LIMIT - BAR_MIN); 
-        Serial.print("mpg_temp = "); 
-        Serial.println(mpg_temp); 
         mpg_temp = (( mpg_temp * 10 ) / ((BAR_LIMIT - BAR_MIN)/10 ) ); 
-        Serial.println(mpg_temp);
-        Serial.print("(mpg_temp * 16) / 100, = ");
         mpg_temp = (mpg_temp * 16) / 10; 
-        Serial.println(mpg_temp); 
         mpg_temp = (mpg_temp+5)/10; //round, /10 (so 160 = 16, etc). 
-        Serial.print("after round and /10, "); 
-        Serial.println(mpg_temp); 
-//        Serial.println("(temp+5)/1");
-//        Serial.println(temp);        
         mpg_temp = MIN(mpg_temp, 16);  //not more than ...
-//        Serial.println("not more than 16");
-//        Serial.println(temp);       
         mpg_temp = MAX(mpg_temp,  0);  //at least ... 
-//        Serial.println("at least 0");
-//        Serial.println(temp);       
         LCDBUF1[8] = ascii_barmap[MAX(mpg_temp-8,0)];
         LCDBUF2[8] = ascii_barmap[MIN(mpg_temp,8)];
 
@@ -1938,8 +1907,6 @@ unsigned long millis2(){
 }
 
 void delay2(unsigned long ms){
-        //Serial.println("delay2 called, ..."); 
-        //Serial.println(ms); 
 	unsigned long start = millis2();
         while (millis2() - start < ms);
         maxDelay = MAX(maxDelay, ms);      
@@ -2025,15 +1992,10 @@ void Drag::reset()
    waiting_start = true;
    running = false;
    #if(CFG_UNITS==2)
-   vss_400m = (parms[dragDistance] * parms[vssPulsesPerMileIdx]) / 1000;// 0.4;
-   //drag_distance = parms[dragDistance];
+   vss_400m = ((parms[dragDistance] + 1000) * parms[vssPulsesPerMileIdx]) / 1000;// 0.4;
    #else
-   //vss_400m = parms[vssPulsesPerMileIdx] / 4;
-   vss_400m = (parms[dragDistance] * parms[vssPulsesPerMileIdx]) / 5280;// 0.4;
-   //drag_distance = parms[dragDistance];
+   vss_400m = ((parms[dragDistance] + 1000) * parms[vssPulsesPerMileIdx]) / 5280;// 0.4;
    #endif
-   //Serial.println(("vss_400m"); 
-   //Serial.println((vss_400m); 
 }
 
 void Drag::start()
@@ -2078,9 +2040,6 @@ unsigned long Drag::distance()
 {
   unsigned long drag_distance; 
   unsigned long drag_pulses = vss_pulses;
-  //drag_pulses = 2052;
-  
-  //return parms[vssPulsesPerMileIdx];
 
 #if (CFG_UNITS == 2) 
   drag_distance = (drag_pulses * 1000) / parms[vssPulsesPerMileIdx];
@@ -2092,7 +2051,7 @@ unsigned long Drag::distance()
     return (drag_distance * 1000);
   }
   else {
-  return (drag_distance * 1000) + 1000; 
+  return (drag_distance * 1000);// + 1000; 
   }
 }
 
