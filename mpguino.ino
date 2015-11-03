@@ -22,12 +22,7 @@ unsigned long LASTLOOPLENGTH = 0;
 unsigned long screenDelay = 600;
 static unsigned long maxDelay = 0;
 static boolean  setupRan = 0;  
-//static long genericTimer = 0;
-//static long idleTimer = 0;
-//static long gphTimer = 0;
-//static unsigned long lastGoodRPM = 433000; 
-//static unsigned long lastGoodGPH = 0; 
-//static unsigned long loopStart;
+static unsigned long barTimer = 0;
 
 
 //for display computing
@@ -284,7 +279,7 @@ volatile boolean lastVssFlop = vssFlop;
 //attach the vss/buttons interrupt      
 ISR(PCINT1_vect) {    
 #if (useDebug)
-   Serial.println(("PCINT1_vect"); 
+   //Serial.println(("PCINT1_vect"); 
 #endif
    static unsigned char vsspinstate=0;      
    unsigned char p = PINC;//bypassing digitalRead for interrupt performance      
@@ -331,12 +326,13 @@ pFunc displayFuncs[] ={
    doDisplayEOCIdleData,     //4  3
    doDisplaySystemInfo,      //5  4
    doDisplayCarSensors,      //6  5
-   #if (BARGRAPH_DISPLAY_CFG == 1)
-   doDisplayBarGraph,        //7  6
-   #endif
    #if (DRAGRACE_DISPLAY_CFG)
-   doDisplayDragRace,        //8  7
+   doDisplayDragRace,        //8  6
    #endif 
+   #if (BARGRAPH_DISPLAY_CFG == 1)
+   doDisplayBarGraph,        //7  7
+   #endif
+
 };      
 
 #define displayFuncSize (sizeof(displayFuncs)/sizeof(pFunc)) //array size      
@@ -352,9 +348,9 @@ void setup (void) {
 
    CLOCK = 0;
    #if UNO_MODIFICATIONS == 1
-   SCREEN = 4;
+   SCREEN = 7;
    #else 
-   SCREEN = 5;
+   SCREEN = 7;
    #endif
    #if (useDebug)
    SCREEN = 3;
@@ -388,13 +384,13 @@ void setup (void) {
 
    displayFuncNames[x++]=  PSTR("CPU Monitor");
    displayFuncNames[x++]=  PSTR("Car Sensors");    
-   #if (BARGRAPH_DISPLAY_CFG == 1)
-   displayFuncNames[x++]=  PSTR(BARGRAPH_LABEL);
-   #endif
    #if (DRAGRACE_DISPLAY_CFG)
    dragSceenIdx = x;
    displayFuncNames[x++]=  PSTR("Drag Race");
    #endif 
+   #if (BARGRAPH_DISPLAY_CFG == 1)
+   displayFuncNames[x++]=  PSTR(BARGRAPH_LABEL);
+   #endif
 
    pinMode(BrightnessPin,OUTPUT);      
    analogWrite(BrightnessPin,brightness[brightnessIdx]);      
@@ -514,6 +510,7 @@ void loop (void) {
       #endif
 
       #if (BARGRAPH_DISPLAY_CFG == 1)
+      #if false
       /* --- For bargraph: reset periodic every n seconds, where n = loopcount / loopspersec, so 60 is 30 seconds */
       if (periodic.loopCount / loopsPerSecond >= 30) {
          temp = MIN((periodic.mpg()/10), 0xFFFF);
@@ -521,8 +518,49 @@ void loop (void) {
          insert((int*)PERIODIC_HIST, (unsigned short)temp, mylength(PERIODIC_HIST), 0);
          periodic.reset();   /* reset */
       }
+      #else
+      unsigned long barLength = 90;
+      barLength = barLength * 1000; 
+      if (millis2() - barTimer < barLength) {
+        //Serial.println("it's small, do nothing");
+        //barTimer = millis2(); 
+      } else {
+        //Serial.println("It's big! Now what do we do? We need to make it small again"); 
+        barTimer = millis2(); //reset barTimer
+                              // and update barGraph
+         temp = MIN((periodic.mpg()/10), 0xFFFF);
+         #if UNO_MODIFICATIONS
+         temp = random(500, 4000); 
+         #endif
+         /* add temp into first element and shift items in array */
+         insert((int*)PERIODIC_HIST, (unsigned short)temp, mylength(PERIODIC_HIST), 0);
+         periodic.reset();   /* reset */
+      }
+      #if CFG_SERIAL_TX
+      /*Serial.println(" ");
+      Serial.print("barLength is ");
+      Serial.print(barLength); 
+      Serial.print(", millis2() ");
+      Serial.print(millis2()); 
+      Serial.print(" - barTimer ");
+      Serial.print(barTimer); 
+      Serial.print(" = ");
+      Serial.println(millis2() - barTimer); */
       #endif
-      
+
+       //put the time-based update refresh here, so we can have loops of varying lenghts which wont throw off the bar graph
+      //check the age of the counter. 
+      //if counter is rilly, rilly old, maytbe 10x delay,  set it to now
+      // else counter old enough but not TOO old  {
+      //update bar graph and reset bar graph and reset time of counter start to now. 
+      //} else {
+      //  do nothing
+      //}
+      //Current time = 0
+ 
+      #endif //ends true/false timer if
+      #endif //ends IF BARGRA if
+    
       /* --- Decide whether to go to sleep or wake up */
       if (    (instant.vssPulses  == 0) 
             && (instantrpm() == 0) 
@@ -814,23 +852,26 @@ void loop (void) {
    MAXLOOPLENGTH = MAX(MAXLOOPLENGTH, elapsedMicroseconds(loopStart));
    
    if (myDrag.running || myDrag.waiting_start) {
-   //  if (SCREEN == dragSceenIdx) {
+   //don't wait
    }
-   
-   //short iRpm = instantrpm(); 
-   else if (instantrpm() <= 2500 * 1000) {
-      while (elapsedMicroseconds(loopStart) < (looptime * 1)) {
+   else if (instantrpm() > 2500000) {
+   //if above 2500 don't wait
+   } else {
+      while (elapsedMicroseconds(loopStart) < looptime) {
       // wait for the end of the loop to arrive (default was .5, calcualte from header values)
       // if this number is less than millis2() - loopStart, loops will not be delayed
+      // wait state is needed otherwise loops are too fast to count RPM accuratly
       continue;
+   
    }
+   //if not <= 2500, then no waiting
    
   }
 
    CLOCK++;
 
-   } /* while (true) */
-} /* loop (void) */
+   } /* close while (true) */
+} /* end loop (void) */
  
 //--------------------------------------------------------
 char *format(unsigned long num) {
@@ -951,7 +992,7 @@ void doDisplayCustom() {
 #endif
 
 void doDisplayCarSensors() {
-  int mod = 100000;
+  unsigned long mod = 100000;
   if (instantrpm() < 500) {
     mod = 0; 
   }
@@ -1115,7 +1156,7 @@ void doDisplaySystemInfo(void) {
    Serial.println(maxDelay * 1000); */
 
    unsigned long mem = memoryTest();      
-   mem*=1000;      
+   mem*=1000;
    strcpy(&LCDBUF2[0], "Free mem: ");
    strcpy(&LCDBUF2[10],  intformat(mem,6));
 }    
@@ -1164,7 +1205,6 @@ void doDisplaySystemInfo(void) {
       strcpy(&LCDBUF1[10], format(impg));
     }
     
-
         mpg_temp = impg;  
         mpg_temp = mpg_temp/10; 
         mpg_temp = mpg_temp - BAR_MIN;//  / (BAR_LIMIT-BAR_MIN)/1;
@@ -1195,7 +1235,7 @@ unsigned long getDTE(void){
    fuel_remaining = MAX(fuel_remaining, 0);
 
    #if (CFG_UNITS == 2)
-   //dte = (fuel_remaining * 100000) / tank.mpg(); //dont work, multiplied number gets too big
+   //dte = (fuel_remaining * 100000) / tank.mpg(); //dont work, multiplied number gets too big, either keep small or use long, or both
    dte = ((fuel_remaining * 1000) / tank.mpg()) * 100;
    #else
    dte = (fuel_remaining * tank.mpg()) / 1000;
@@ -1317,11 +1357,7 @@ int memoryTest(){
   else 
     free_memory = ((int)&free_memory) - ((int)__brkval); 
   return free_memory; 
-} 
- 
-//Trip::Trip(){      
-//}      
- 
+}
 
 unsigned long instantmph(){  
   //unsigned long vssPulseTimeuS = (lastVSS1 + lastVSS2) / 2;
@@ -1840,6 +1876,7 @@ boolean editParm(unsigned char parmIdx){
      else{
         keyLock=0;
      }
+     maxDelay = 0; 
      buttonState=buttonsUp;
      
   //begin UNO modifications   
@@ -1900,6 +1937,7 @@ void initGuino(){ //edit all the parameters
   }
   save();
   HOLD_DISPLAY=1;
+  maxDelay = 0;
 }  
 
 unsigned long millis2(){

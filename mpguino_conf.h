@@ -1,7 +1,7 @@
 /* --- Compile-time options ---------------------------------- */
 #define ATMEGA328 1
 
-#define UNO_MODIFICATIONS             1 //0 for default mpguino, 1 for newfangled lcd+buttons shield
+#define UNO_MODIFICATIONS             0 //0 for default mpguino, 1 for newfangled lcd+buttons shield
 #define MEMORY_HOG                    1 //1 to run nomrally, 0 to disable things to try and save memory
 
 #if ATMEGA328 == 1
