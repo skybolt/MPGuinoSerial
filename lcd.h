@@ -2,7 +2,7 @@
 
 // --------------- constants --------------------
 #define LcdCharHeightPix  8 
-#if (UNO_MODIFICATIONS == 1)
+#if (UNO_MODIFICATIONS == 1) //is this a problem? Could any of these assignments affect read analog 1 instead of 0?
  #define DIPin             8 // register select RS, meelis 4, arduino default 12, new lcd 8 
  #define EnablePin         9 // enable pin, 5 meelis, 11 arduino, 9 new
  #define ContrastPin       6  //

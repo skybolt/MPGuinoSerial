@@ -36,8 +36,8 @@
 //#define NC                                    11
 //#define DB6Pin                                12       
 //#define DB7Pin                                13   
-#if (UNO_MODIFICATIONS == 1)
-#define VSSPin                                16  // analog 0 is pin 14, let's move it to 16, leaving fuel on 15. Where is fuel defined? 
+#if UNO_MODIFICATIONS
+#define VSSPin                                15  // analog 0 is pin 14, let's move it to 16, leaving fuel on 15? Where is fuel defined? 
 #define temp1Pin                              1      
 #define temp2Pin                              2
 #define lbuttonPin                            17 // Left Button, on analog 3, which isn't 17 but 26. WTF? 
@@ -46,12 +46,13 @@
                                                   // i'm going to guess that's not physical 19, but logical 19 which is on physical 28 or 0x20 on C. Set in software? 
 
 /* --- Button bitmasks --- */ 
-#define vssBit                              0x04  //  pin14 is a bitmask 0x01 on port C, so then pin16 should be bitmask 0x04 on port C, 15 should be bitmask 0x02
+#define vssBit                              0x02  //  pin14 is a bitmask 0x01 on port C, so then pin16 should be bitmask 0x04 on port C, 15 should be bitmask 0x02
+//#define vssBit ( 1 << 1 )
 #define lbuttonBit                          0x08  //  pin17 is a bitmask 0x08 on port C
 #define mbuttonBit                          0x10  //  pin18 is a bitmask 0x10 (decimal 16) on port C
 #define rbuttonBit                          0x20  //  pin19 is a bitmask 0x20 (decimal 32) on port C, 
 
-#else
+#else //NOT uno, so normal, defaults
 #define VSSPin                                14  // analog 0
 #define temp1Pin                              1      
 #define temp2Pin                              2
@@ -151,8 +152,8 @@ unsigned short BAR_LIMIT = 2500;  /* 3-11 L/100km (0.5 L/px) about 9 mpg */
 //#define BARGRAPH_LABEL "Graph 3-7L/100km" //max 16 chars
 #else
 unsigned short BAR_MIN = 0; //min 18 mpg
-unsigned short BAR_LIMIT = 3600;  /* 18-58 mpg (2.5 mpg/px) */
-#define BARGRAPH_LABEL "Graph 0-36 MPG" //max 16 chars
+unsigned short BAR_LIMIT = 4000;  /* 18-58 mpg (2.5 mpg/px) */
+#define BARGRAPH_LABEL "Graph 0-40 MPG" //max 16 chars
 #endif
 
 #endif

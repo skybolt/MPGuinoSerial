@@ -221,8 +221,11 @@ void processInjOpen(void){
 void processInjClosed(void){
   //20110831 AJT Peak and Hold ;)
   long t =  microSeconds();
+  #if UNO_MODIFICATIONS_NOT
+  long x = elapsedMicroseconds(injHiStart, t);   
+  #else
   long x = elapsedMicroseconds(injHiStart, t) - parms[injectorSettleTimeIdx];   
-
+  #endif
   if( parms[injEdgeIdx]==3 ){
     if (x >0) {
       tmpTrip.injHius += x;
@@ -278,9 +281,6 @@ volatile boolean lastVssFlop = vssFlop;
 
 //attach the vss/buttons interrupt      
 ISR(PCINT1_vect) {    
-#if (useDebug)
-   //Serial.println(("PCINT1_vect"); 
-#endif
    static unsigned char vsspinstate=0;      
    unsigned char p = PINC;//bypassing digitalRead for interrupt performance      
 
@@ -301,11 +301,14 @@ ISR(PCINT1_vect) {
       unsigned long t = microSeconds();
       lastVSS2=elapsedMicroseconds(lastVSSTime,t);
       lastVSSTime=t;
-#if (UNO_MODIFICATIONS == 1)
-      tmpTrip.vssPulses = tmpTrip.vssPulses + 10000000;
-#else
+      #if UNO_MODIFICATIONS
+      tmpTrip.vssPulses++;
       tmpTrip.vssPulses++; 
-#endif
+      tmpTrip.vssPulses++; 
+      tmpTrip.vssPulses++; 
+      #else
+      tmpTrip.vssPulses++; 
+      #endif
       tmpTrip.vssPulseLength += lastVSS2;
       lastVssFlop = vssFlop;
    }
@@ -342,13 +345,17 @@ unsigned char newRun = 0;
 #if (DRAGRACE_DISPLAY_CFG)
 unsigned char dragSceenIdx;
 #endif
+#if BARGRAPH_DISPLAY_CFG
+unsigned char barGraphScreenIdx;
+#endif
 
 void setup (void) {
    unsigned char x = 0;
+   //unsigned char dgIdx = 0;
 
    CLOCK = 0;
-   #if UNO_MODIFICATIONS == 1
-   SCREEN = 7;
+   #if UNO_MODIFICATIONS
+   SCREEN = 5;
    #else 
    SCREEN = 7;
    #endif
@@ -389,6 +396,7 @@ void setup (void) {
    displayFuncNames[x++]=  PSTR("Drag Race");
    #endif 
    #if (BARGRAPH_DISPLAY_CFG == 1)
+   barGraphScreenIdx = x;
    displayFuncNames[x++]=  PSTR(BARGRAPH_LABEL);
    #endif
 
@@ -423,13 +431,17 @@ void setup (void) {
    pinMode( rbuttonPin, INPUT );      
 
    //"turn on" the internal pullup resistors      
-   digitalWrite( lbuttonPin, HIGH);       
+    digitalWrite( lbuttonPin, HIGH);       
    digitalWrite( mbuttonPin, HIGH);       
    digitalWrite( rbuttonPin, HIGH);       
    //  digitalWrite( VSSPin, HIGH);       
 
-   //low level interrupt enable stuff      
+   //low level interrupt enable stuff
+   #if UNO_MODIFICATIONS 
+   PCMSK1 |= (1 << PCINT9); //reads from A1 (analog 1) instead of analog zero, b/c the Adafruit LCD shield uses A0 for buttons
+   #else
    PCMSK1 |= (1 << PCINT8);
+   #endif
    enableLButton();
    enableMButton();
    enableRButton();
@@ -448,6 +460,7 @@ void loop (void) {
    unsigned long tankHold;      //state at point of last activity
    unsigned long loopStart;
    unsigned long temp;          //scratch variable
+   
 
    lastActivity = microSeconds();
 
@@ -455,13 +468,15 @@ void loop (void) {
       //go through the initialization screen
       initGuino();
    }
-
+   
    while (true) {
+     
 
-      loopStart=microSeconds();      
 
+      loopStart=microSeconds();    
+    
       #if (CFG_FUELCUT_INDICATOR != 0)
-      FCUT_POS = 8;
+          FCUT_POS = 8;
       #endif
       
       #if (OUTSIDE_TEMP_CFG == 1)
@@ -488,15 +503,27 @@ void loop (void) {
       /* send out instantmpg * 1000, instantmph * 1000, the injector/vss raw data */
       if (true) {
       simpletx(format(instantmpg()));
-      simpletx(",");
+      simpletx(" impg, ");
+      simpletx(format(instantgph()));
+      simpletx(" igph, ");
       simpletx(format(instantmph()));
-      simpletx(",");
-      simpletx(format(instant.injHius   * 1000));
-      simpletx(",");
-      simpletx(format(instant.injPulses * 1000));
-      simpletx(",");
-      simpletx(format(instant.vssPulses * 1000)); 
-      simpletx("\n");  
+      simpletx(" imph, ");
+      simpletx(format(instant.injHius   * 100));
+      simpletx(" injHiu, ");
+      simpletx(format(instInjEnd));
+      simpletx(" InjEnd, ");
+      simpletx(format(instInjStart));
+      simpletx(" InjStart, ");
+      simpletx(format(instInjEnd-instInjStart)); 
+      simpletx(" InjEnd-InjStart, "); 
+      simpletx(format(instant.injPulses * 100));
+      simpletx(" injPls, ");
+      simpletx(format(instantrpm()));
+      simpletx(" rpm, ");
+      simpletx(format(instInjCount));
+      simpletx(" InjCount, "); 
+      simpletx(format(instant.vssPulses * 100)); 
+      simpletx(" vssP\n");  
       }
       #endif
 
@@ -519,7 +546,11 @@ void loop (void) {
          periodic.reset();   /* reset */
       }
       #else
+      #if UNO_MODIFICATIONS
+      unsigned long barLength = 9;
+      #else
       unsigned long barLength = 90;
+      #endif
       barLength = barLength * 1000; 
       if (millis2() - barTimer < barLength) {
         //Serial.println("it's small, do nothing");
@@ -530,7 +561,7 @@ void loop (void) {
                               // and update barGraph
          temp = MIN((periodic.mpg()/10), 0xFFFF);
          #if UNO_MODIFICATIONS
-         temp = random(500, 4000); 
+         //temp = random(500, 4000); 
          #endif
          /* add temp into first element and shift items in array */
          insert((int*)PERIODIC_HIST, (unsigned short)temp, mylength(PERIODIC_HIST), 0);
@@ -548,7 +579,7 @@ void loop (void) {
       Serial.println(millis2() - barTimer); */
       #endif
 
-       //put the time-based update refresh here, so we can have loops of varying lenghts which wont throw off the bar graph
+      //put the time-based update refresh here, so we can have loops of varying lenghts which wont throw off the bar graph
       //check the age of the counter. 
       //if counter is rilly, rilly old, maytbe 10x delay,  set it to now
       // else counter old enough but not TOO old  {
@@ -655,8 +686,9 @@ void loop (void) {
       #endif
 
       #if (CFG_FUELCUT_INDICATOR != 0)
+      
       /* --- insert visual indication that fuel cut is happening */
-      if (    (instantrpm() == 0)
+      if (    (instantrpm() == 0) //if RPM zero but speed yes, do fcut
            && (instant.vssPulses > 0) 
          ) 
       {
@@ -668,7 +700,7 @@ void loop (void) {
       }
       #endif
       
-      if (    (instant.injPulses  > 0) 
+      if (    (instant.injPulses  > 0)  //if yes fuel but no speed, show as idle
            && (instant.vssPulses == 0) 
          ) 
       {
@@ -740,7 +772,6 @@ void loop (void) {
          } else
          #endif
          {
-           
          brightnessIdx = (brightnessIdx + 1) % brightnessLength;
          if(brightnessIdx==0) { //just in case when display gets corrupted, you can cycle to brightness 0 and display will be initialized again
            LCD::init();           
@@ -852,9 +883,11 @@ void loop (void) {
    MAXLOOPLENGTH = MAX(MAXLOOPLENGTH, elapsedMicroseconds(loopStart));
    
    if (myDrag.running || myDrag.waiting_start) {
+     //if (false) {
    //don't wait
    }
-   else if (instantrpm() > 2500000) {
+   //else if (instantrpm() > 2500000) {
+     else if (false) {
    //if above 2500 don't wait
    } else {
       while (elapsedMicroseconds(loopStart) < looptime) {
@@ -869,8 +902,9 @@ void loop (void) {
   }
 
    CLOCK++;
-
+   
    } /* close while (true) */
+
 } /* end loop (void) */
  
 //--------------------------------------------------------
@@ -1153,7 +1187,9 @@ void doDisplaySystemInfo(void) {
    //strcpy(&LCDBUF1[11], intformat    ((/*LASTLOOPLENGTH*/1000000/(LASTLOOPLENGTH/1000)),5)   );  
    strcpy(&LCDBUF1[11], intformat    (( (LASTLOOPLENGTH)),5)   );  
    /*Serial.println(LASTLOOPLENGTH); 
-   Serial.println(maxDelay * 1000); */
+   Serial.println(maxDelay * 1000); 
+   Serial.print("Screen = "); 
+   Serial.println(SCREEN);*/
 
    unsigned long mem = memoryTest();      
    mem*=1000;
@@ -1161,14 +1197,33 @@ void doDisplaySystemInfo(void) {
    strcpy(&LCDBUF2[10],  intformat(mem,6));
 }    
 
-#if (BARGRAPH_DISPLAY_CFG == 1)
+#if (BARGRAPH_DISPLAY_CFG == 1) //find bargraph
+           //Serial.print("Screen = "); 
+      //Serial.println(SCREEN); 
    void doDisplayBarGraph(void) {
-   unsigned short impg = instantmpg(); 
+     /*
+     //checker
+     int analogPin = 3;  
+     int val = 0; 
+     val = analogRead(analogPin);    // read the input pin
+     Serial.print("analogRead val = ");
+     Serial.println(val);             // debug value
+     ///end checker ok to delete checker
+     */
+     
+   unsigned long impg = instantmpg(); 
    signed short temp = 0;
-   signed short mpg_temp = 0; 
+   signed long mpg_temp = 0; 
    unsigned char i = 0;
    unsigned char j = 0;
    unsigned short stemp = 0;
+   
+      if (impg == 999999000) {
+      FCUT_POS = 33;
+      }
+      else {
+      FCUT_POS = 8;
+      }
 
    /* Load the bargraph characters if necessary */
    if (DISPLAY_TYPE != dtBarGraph) {
@@ -1182,14 +1237,11 @@ void doDisplaySystemInfo(void) {
       temp = MAX((signed short)(PERIODIC_HIST[i-1] - BAR_MIN), 0); //at least x or bar low 
       stemp = MIN(temp, BAR_LIMIT); //not more than x or bar_high
       
-      
       temp = (signed short)    ( (stemp*16) / ((BAR_LIMIT-BAR_MIN)/10) ); //convert to 0-160, or 1000 * 16 (16000 / (2000) 
       temp = (temp+5)/10; //round, /10 (so 160 = 16, etc).   
       temp = MIN(temp, 16);  //not more than ...
-      temp = MAX(temp,  0);  //at least ... 
-      /* line 1 graph */
+      
       LCDBUF1[j] = ascii_barmap[MAX(temp-8,0)];
-      /* line 2 graph */
       LCDBUF2[j] = ascii_barmap[MIN(temp,8)];
       j++;
    }
@@ -1206,13 +1258,50 @@ void doDisplaySystemInfo(void) {
     }
     
         mpg_temp = impg;  
+        #if CFG_SERIAL_TXx
+        Serial.print("mpg_temp = (direct) = ");
+        Serial.println(mpg_temp);
+        #endif
         mpg_temp = mpg_temp/10; 
-        mpg_temp = mpg_temp - BAR_MIN;//  / (BAR_LIMIT-BAR_MIN)/1;
+        #if CFG_SERIAL_TXx
+        Serial.print("mpg_temp = /10 ");
+        Serial.println(mpg_temp);
+        #endif
+        mpg_temp = MAX((mpg_temp - BAR_MIN), 0);//  / (BAR_LIMIT-BAR_MIN)/1, make sure at least zero
+        #if CFG_SERIAL_TXx
+        Serial.print("mpg_temp = max(mpg_temp - BAR_MIN), 0 (or max(-100, 0), neg prob? = ");
+        Serial.println(mpg_temp);
+        #endif
+        mpg_temp = MAX(mpg_temp, 0); 
+        #if CFG_SERIAL_TXx
+        Serial.print("MAX(mpg_temp, 0) = ");
+        Serial.println(mpg_temp);
+        #endif
         mpg_temp = (( mpg_temp * 10 ) / ((BAR_LIMIT - BAR_MIN)/10 ) ); 
+        #if CFG_SERIAL_TXx
+        Serial.print("(mpg_temp = * 10) / (BAR_LIM - BAR_MIN), or / 2600 ");
+        Serial.println(mpg_temp);
+        #endif
         mpg_temp = (mpg_temp * 16) / 10; 
+        #if CFG_SERIAL_TXx
+        Serial.print("mpg_temp = * 16, then /10 = ");
+        Serial.println(mpg_temp);
+        #endif
         mpg_temp = (mpg_temp+5)/10; //round, /10 (so 160 = 16, etc). 
+        #if CFG_SERIAL_TXx
+        Serial.print("mpg_temp = (round) = ");
+        Serial.println(mpg_temp);
+        #endif
         mpg_temp = MIN(mpg_temp, 16);  //not more than ...
+        #if CFG_SERIAL_TXx
+        Serial.print("mpg_temp = (max 16) = ");
+        Serial.println(mpg_temp);
+        #endif
         mpg_temp = MAX(mpg_temp,  0);  //at least ... 
+        #if CFG_SERIAL_TXx
+        Serial.print("mpg_temp = min zero = ");
+        Serial.println(mpg_temp);
+        #endif
         LCDBUF1[8] = ascii_barmap[MAX(mpg_temp-8,0)];
         LCDBUF2[8] = ascii_barmap[MIN(mpg_temp,8)];
 
@@ -1220,11 +1309,6 @@ void doDisplaySystemInfo(void) {
    //LCDBUF2[8] = ' ';
    LCDBUF2[9] = 'p';
    strcpy(&LCDBUF2[10], format(periodic.mpg()));
-
-   #if (CFG_FUELCUT_INDICATOR != 0)
-   /* where should the fuel cut indication go? */
-   FCUT_POS = 8;
-   #endif
 }
 #endif
 
@@ -1362,9 +1446,29 @@ int memoryTest(){
 unsigned long instantmph(){  
   //unsigned long vssPulseTimeuS = (lastVSS1 + lastVSS2) / 2;
   unsigned long vssPulseTimeuS = instant.vssPulseLength/instant.vssPulses;
-
+  #if CFG_SERIAL_TXx
+  Serial.println();
+  Serial.print("instant.vssPulseLength = ");
+  Serial.print(instant.vssPulseLength); 
+  Serial.print(", instant.vssPulses = ");
+  Serial.println(instant.vssPulses); 
+  Serial.print(", voltage is ");
+  Serial.println(batteryVoltage()); 
+  #endif
   init64(tmp1,0,1000000000ul);
+  #if UNO_MODIFICATIONSeses
+  init64(tmp2,0,1956214);
+  #else
   init64(tmp2,0,parms[vssPulsesPerMileIdx]);
+  #endif
+  #if CFG_SERIAL_TXL
+  simpletx("\n");
+  //Serial.println(); 
+  Serial.print("tmp1 = ");
+  Serial.print(tmp1);
+  Serial.print(", tmp2 = ");
+  Serial.println(tmp2); 
+  #endif 
   div64(tmp1,tmp2);
   init64(tmp2,0,3600);
   mul64(tmp1,tmp2);
@@ -1380,7 +1484,8 @@ unsigned long instantmpg(){
   unsigned long imph=instantmph();
   unsigned long igph=instantgph();
   #if UNO_MODIFICATIONS
-  return random(0, 50000);
+  //return 999999000;
+  //return random(0, 40001);
   #endif
 
 #if(CFG_UNITS==2) // km
@@ -1388,7 +1493,7 @@ unsigned long instantmpg(){
   if(igph == 0) return 0;
 #else // miles
   if(imph == 0) return 0;
-  if(igph == 0) return 999999000;  
+  if(igph == 0) return 999999000;
 #endif
 
   init64(tmp1,0,1000ul);
@@ -2030,9 +2135,9 @@ void Drag::reset()
    waiting_start = true;
    running = false;
    #if(CFG_UNITS==2)
-   vss_400m = ((parms[dragDistance] + 1000) * parms[vssPulsesPerMileIdx]) / 1000;// 0.4;
+   vss_400m = ((parms[dragDistance] + 1) * parms[vssPulsesPerMileIdx]) / 1000;// 0.4;
    #else
-   vss_400m = ((parms[dragDistance] + 1000) * parms[vssPulsesPerMileIdx]) / 5280;// 0.4;
+   vss_400m = ((parms[dragDistance] + 1) * parms[vssPulsesPerMileIdx]) / 5280;// 0.4;
    #endif
 }
 
