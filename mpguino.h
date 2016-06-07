@@ -7,7 +7,7 @@
 //#define usedefaults true
 
 #if (CFG_SERIAL_TX == 1)
-   #define myubbr (16000000/16/9600-1)
+   #define myubbr (16000000/16/57600-1)
 #endif
 
 #if (TANK_IN_EEPROM_CFG == 1)
@@ -36,21 +36,23 @@
 //#define NC                                    11
 //#define DB6Pin                                12       
 //#define DB7Pin                                13   
+
 #if UNO_MODIFICATIONS
+
 #define VSSPin                                15  // analog 0 is pin 14, let's move it to 16, leaving fuel on 15? Where is fuel defined? 
 #define temp1Pin                              1      
 #define temp2Pin                              2
 #define lbuttonPin                            17 // Left Button, on analog 3, which isn't 17 but 26. WTF? 
 #define mbuttonPin                            18  // Middle Button, on analog 4, which ins't 18 but 27
-#define rbuttonPin                            19  // Right Button, on analog 5, which isn't 19, but pin 28
-                                                  // i'm going to guess that's not physical 19, but logical 19 which is on physical 28 or 0x20 on C. Set in software? 
-
-/* --- Button bitmasks --- */ 
+#define rbuttonPin                            19  // Right Button, on analog 5, which isn't 19, but pin 28                                                  // i'm going to guess that's not physical 19, but logical 19 which is on physical 28 or 0x20 on C. Set in software? 
+#define sbuttonPin                            14
+/* --- Button bitmasks ---for UNO */ 
 #define vssBit                              0x02  //  pin14 is a bitmask 0x01 on port C, so then pin16 should be bitmask 0x04 on port C, 15 should be bitmask 0x02
 //#define vssBit ( 1 << 1 )
 #define lbuttonBit                          0x08  //  pin17 is a bitmask 0x08 on port C
 #define mbuttonBit                          0x10  //  pin18 is a bitmask 0x10 (decimal 16) on port C
 #define rbuttonBit                          0x20  //  pin19 is a bitmask 0x20 (decimal 32) on port C, 
+#define sbuttonBit                          0x01  //analog zero, bitmask 1 on port c. Remember we moved the vss to a1 from a0
 
 #else //NOT uno, so normal, defaults
 #define VSSPin                                14  // analog 0
@@ -60,12 +62,12 @@
 #define mbuttonPin                            18  // Middle Button, on analog 4
 #define rbuttonPin                            19  // Right Button, on analog 5
 
-/* --- Button bitmasks --- */ 
+/* --- Button bitmasks --for NOT uno- */ 
 #define vssBit                              0x01  //  pin14 is a bitmask 1 on port C
 #define lbuttonBit                          0x08  //  pin17 is a bitmask 8 on port C
 #define mbuttonBit                          0x10  //  pin18 is a bitmask 16 on port C
 #define rbuttonBit                          0x20  //  pin19 is a bitmask 32 on port C
-#endif
+#endif  //end of IF UNO > NOT block
 
 // start with the buttons in the right state      
 #define buttonsUp   lbuttonBit + mbuttonBit + rbuttonBit
@@ -92,6 +94,7 @@ typedef void (* pFunc)(void);//type for display function pointers
 #define LeftButtonPressed        (!(buttonState & lbuttonBit))
 #define RightButtonPressed       (!(buttonState & rbuttonBit))
 #define MiddleButtonPressed      (!(buttonState & mbuttonBit))
+#define SoftButtonPressed        (!(buttonState & sbuttonBit))
 
 #define MIN(value1, value2)\
     (((value1) >= (value2)) ? (value2) : (value1))

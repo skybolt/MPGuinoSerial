@@ -1,11 +1,12 @@
 // Opengauge MPGuino code, modified by Meelis Pärjasaar
-// webpage - http://mpguino.wiseman.ee
+// webpage - htts://mpguino.wiseman.ee
 
 #include "mpguino_conf.h"
 #include <avr/pgmspace.h>
 #include <EEPROM.h>
 #include "mpguino.h"
 #include "lcd.h"
+#include "serialSend.h"
 
 #if( SLEEP_CFG == 3 ) 
 #include <avr/sleep.h>
@@ -17,10 +18,9 @@
 
 /* --- Global Variable Declarations -------------------------- */
 
-static unsigned long MAXLOOPLENGTH = 0; // see if we are overutilizing the CPU 
+static unsigned long MAXLOOPLENGTH = 0; // see if we are overutilizing the CPU
+static unsigned long MINLOOPLENGTH = 99999999; // see if we are underutilizing the CPU
 unsigned long LASTLOOPLENGTH = 0;  
-unsigned long screenDelay = 600;
-static unsigned long maxDelay = 0;
 static boolean  setupRan = 0;  
 static unsigned long barTimer = 0;
 
@@ -114,14 +114,18 @@ Keep the event functions SMALL!!!  This is an interrupt!
 void enableLButton(){PCMSK1 |= (1 << PCINT11);}
 void enableMButton(){PCMSK1 |= (1 << PCINT12);}
 void enableRButton(){PCMSK1 |= (1 << PCINT13);}
+void enableSButton(){PCMSK1 |= (1 << PCINT9);}
 //array of the event functions
-pFunc eventFuncs[] ={enableVSS, enableLButton,enableMButton,enableRButton};
+pFunc eventFuncs[] ={enableVSS, enableLButton,enableMButton,enableRButton,enableSButton};
 #define eventFuncSize (sizeof(eventFuncs)/sizeof(pFunc)) 
 //define the event IDs
 #define enableVSSID 0
 #define enableLButtonID 1
 #define enableMButtonID 2
 #define enableRButtonID 3
+  #if UNO_MOFDIFICATIONS
+#define enableSButtonID 4
+  #endif
 
 #define useDebug false
 
@@ -221,11 +225,7 @@ void processInjOpen(void){
 void processInjClosed(void){
   //20110831 AJT Peak and Hold ;)
   long t =  microSeconds();
-  #if UNO_MODIFICATIONS_NOT
-  long x = elapsedMicroseconds(injHiStart, t);   
-  #else
   long x = elapsedMicroseconds(injHiStart, t) - parms[injectorSettleTimeIdx];   
-  #endif
   if( parms[injEdgeIdx]==3 ){
     if (x >0) {
       tmpTrip.injHius += x;
@@ -296,19 +296,11 @@ ISR(PCINT1_vect) {
          myDrag.start();
       }
       #endif
-
       lastVSS1=lastVSS2;
       unsigned long t = microSeconds();
       lastVSS2=elapsedMicroseconds(lastVSSTime,t);
       lastVSSTime=t;
-      #if UNO_MODIFICATIONS
-      tmpTrip.vssPulses++;
       tmpTrip.vssPulses++; 
-      tmpTrip.vssPulses++; 
-      tmpTrip.vssPulses++; 
-      #else
-      tmpTrip.vssPulses++; 
-      #endif
       tmpTrip.vssPulseLength += lastVSS2;
       lastVssFlop = vssFlop;
    }
@@ -317,51 +309,53 @@ ISR(PCINT1_vect) {
 } /* ISR(PCINT1_vect) */
  
  
-pFunc displayFuncs[] ={ 
-   doDisplayInstantCurrent, //0
-   doDisplayInstantTank,  //1
-   #if CFG_BIGFONT_TYPE > 0  
-   doDisplayBigInstant,     //
-   doDisplayBigSpeed,     //
-   doDisplayCurrentTripData, //2
-   #endif
-   doDisplayTankTripData,    //3  2
-   doDisplayEOCIdleData,     //4  3
-   doDisplaySystemInfo,      //5  4
-   doDisplayCarSensors,      //6  5
+pFunc displayFuncs[] ={
+
+   doDisplaySerialOnly, //0
+   doDisplayInstantCurrent, //1
+   doDisplayInstantTank,  //2
+   doDisplayCurrentTripData, //3
+   doDisplayTankTripData,    //4  
+   doDisplayEOCIdleData,     //5  
+   doDisplaySystemInfo,      //6  
+   doDisplayCarSensors,      //7  
+
    #if (DRAGRACE_DISPLAY_CFG)
-   doDisplayDragRace,        //8  6
+   doDisplayDragRace,        //8  
    #endif 
+
    #if (BARGRAPH_DISPLAY_CFG == 1)
-   doDisplayBarGraph,        //7  7
+   doDisplayBarGraph,        //9 
+   #endif
+
+   #if CFG_BIGFONT_TYPE > 0
+   doDisplayBigInstant,     //10
+   doDisplayBigCurrent,     //11
+   doDisplayBigSpeed,       //12
    #endif
 
 };      
 
 #define displayFuncSize (sizeof(displayFuncs)/sizeof(pFunc)) //array size      
 
-prog_char  * displayFuncNames[displayFuncSize]; 
+prog_char  * displayFuncNames[displayFuncSize];
+
+unsigned char serialOnlyScreenIdx; 
+
 unsigned char newRun = 0;
 #if (DRAGRACE_DISPLAY_CFG)
-unsigned char dragSceenIdx;
+unsigned char dragScreenIdx;
 #endif
 #if BARGRAPH_DISPLAY_CFG
 unsigned char barGraphScreenIdx;
 #endif
 
 void setup (void) {
+  simpletx("void setup called\n"); 
    unsigned char x = 0;
    //unsigned char dgIdx = 0;
-
    CLOCK = 0;
-   #if UNO_MODIFICATIONS
-   SCREEN = 5;
-   #else 
-   SCREEN = 7;
-   #endif
-   #if (useDebug)
-   SCREEN = 3;
-   #endif
+   SCREEN = 1;
    HOLD_DISPLAY = 0;
 
    #if (CFG_IDLE_MESSAGE != 0)
@@ -370,36 +364,40 @@ void setup (void) {
 
    init2();
    newRun = load();//load the default parameters
-
-//   displayFuncNames[x++]=  PSTR("Custom"); 
+   serialOnlyScreenIdx = x; 
+   displayFuncNames[x++]=  PSTR("Serial Only"); 
    displayFuncNames[x++]=  PSTR("Instant/Current"); 
-   displayFuncNames[x++]=  PSTR("Instant/Tank"); 
-   #if CFG_BIGFONT_TYPE > 0
-   displayFuncNames[x++]=  PSTR("BIG Instant"); 
-   //displayFuncNames[x++]=  PSTR("BIG Current"); 
-   displayFuncNames[x++]=  PSTR("BIG Speed");
-   //displayFuncNames[x++]=  PSTR("BIG Tank");
-   displayFuncNames[x++]=  PSTR("Current");  
-   #endif
-   displayFuncNames[x++]=  PSTR("Tank"); 
+   displayFuncNames[x++]=  PSTR("Instant/Tank");
+   displayFuncNames[x++]=  PSTR("Current Trip");
+   displayFuncNames[x++]=  PSTR("Tank Data"); 
+   
    #if (CFG_UNITS == 2)
    displayFuncNames[x++]=  PSTR("EOC km/Idle Litr");
    #else
    displayFuncNames[x++]=  PSTR("eco mil/Idle Gal");
    #endif
 
-
    displayFuncNames[x++]=  PSTR("CPU Monitor");
    displayFuncNames[x++]=  PSTR("Car Sensors");    
+   
    #if (DRAGRACE_DISPLAY_CFG)
-   dragSceenIdx = x;
+   dragScreenIdx = x;
    displayFuncNames[x++]=  PSTR("Drag Race");
    #endif 
+
    #if (BARGRAPH_DISPLAY_CFG == 1)
    barGraphScreenIdx = x;
    displayFuncNames[x++]=  PSTR(BARGRAPH_LABEL);
    #endif
 
+   #if CFG_BIGFONT_TYPE > 0
+   displayFuncNames[x++]=  PSTR("BIG Instant"); 
+   displayFuncNames[x++]=  PSTR("BIG Speed");
+   displayFuncNames[x++]=  PSTR("Big Current");  
+   #endif
+
+
+   
    pinMode(BrightnessPin,OUTPUT);      
    analogWrite(BrightnessPin,brightness[brightnessIdx]);      
    pinMode(EnablePin,OUTPUT);       
@@ -408,15 +406,14 @@ void setup (void) {
    pinMode(DB5Pin,OUTPUT);       
    pinMode(DB6Pin,OUTPUT);       
    pinMode(DB7Pin,OUTPUT);       
-
-   //delay2(500);      
+     
 
    pinMode(ContrastPin,OUTPUT);      
    analogWrite(ContrastPin,parms[contrastIdx]);  
    LCD::init();      
    LCD::LcdCommandWrite(LCD_ClearDisplay);            // clear display, set cursor position to zero         
    LCD::LcdCommandWrite(LCD_SetDDRAM);                // set dram to zero
-   LCD::print(getStr(PSTR("OpenGauge")));      
+   LCD::print(getStr(PSTR("OpenGauge")));
    LCD::gotoXY(2,1);      
    LCD::print(getStr(PSTR(STARTUP_TEXT)));
 
@@ -425,35 +422,103 @@ void setup (void) {
    pinMode(VSSPin, INPUT);            
    attachInterrupt(0, processInjOpen, parms[injEdgeIdx]==1? RISING:FALLING);      
    attachInterrupt(1, processInjClosed, parms[injEdgeIdx]==1? FALLING:RISING); 
-
    pinMode( lbuttonPin, INPUT );       
-   pinMode( mbuttonPin, INPUT );       
-   pinMode( rbuttonPin, INPUT );      
-
-   //"turn on" the internal pullup resistors      
-    digitalWrite( lbuttonPin, HIGH);       
+   pinMode( mbuttonPin, INPUT ); 
+   pinMode( rbuttonPin, INPUT );  
+   //"turn on" the internal pullup resistors   
+   digitalWrite( lbuttonPin, HIGH);       
    digitalWrite( mbuttonPin, HIGH);       
-   digitalWrite( rbuttonPin, HIGH);       
-   //  digitalWrite( VSSPin, HIGH);       
+   digitalWrite( rbuttonPin, HIGH);
+   
+   #if UNO_MODIFICATIONS
+   pinMode( sbuttonPin, INPUT );    
+   digitalWrite( sbuttonPin, HIGH);       
+   #endif
+
 
    //low level interrupt enable stuff
    #if UNO_MODIFICATIONS 
    PCMSK1 |= (1 << PCINT9); //reads from A1 (analog 1) instead of analog zero, b/c the Adafruit LCD shield uses A0 for buttons
-   #else
-   PCMSK1 |= (1 << PCINT8);
    #endif
+   PCMSK1 |= (1 << PCINT8);
    enableLButton();
    enableMButton();
    enableRButton();
+   #if UNO_MODIFICATIONS
+   enableSButton(); 
    PCICR |= (1 << PCIE1);       
+   #endif
 
    #if (OUTSIDE_TEMP_CFG == 1)
    INIT_OUTSIDE_TEMP();
    #endif
 
-   delay2(1500);
-   maxDelay = 0;
+   delay2(500);
+   setupRan = 1;
 } /* void setup (void) */
+
+
+void leftButton(void) {
+         if (SCREEN!=0) {
+             SCREEN--;
+         }
+         else {
+            SCREEN=displayFuncSize-1;      
+         }
+         LCD::print(getStr(displayFuncNames[SCREEN]));
+         delay2(500);
+         setupRan = 1;
+}
+
+void rightButton(void) {
+         SCREEN=(SCREEN+1)%displayFuncSize;      
+         LCD::print(getStr(displayFuncNames[SCREEN])); 
+         delay2(500);
+         setupRan = 1;
+}
+
+void middleButton(void) {
+  
+         #if (DRAGRACE_DISPLAY_CFG) //what to do if on drag screen
+        if(SCREEN == dragScreenIdx || SCREEN == serialOnlyScreenIdx) {
+            myDrag.reset();   
+         } else 
+         #endif
+         
+        {
+         brightnessIdx = (brightnessIdx + 1) % brightnessLength;
+         if(brightnessIdx==0) { //just in case when display gets corrupted, you can cycle to brightness 0 and display will be initialized again
+           LCD::init();           
+         }
+         
+         analogWrite(BrightnessPin,brightness[brightnessIdx]);
+         LCD::print(getStr(PSTR("Brightness ")));
+         LCD::LcdDataWrite('0' + brightnessIdx);
+         LCD::print(" ");  
+         }      
+}
+
+void leftAndMiddleButton(void) {
+         tank.reset();      
+         LCD::print(getStr(PSTR("Tank Reset ")));
+}
+
+void middleAndRightButton(void) {
+         current.reset();      
+         LCD::print(getStr(PSTR("Current Reset ")));  
+         delay2(500);
+         setupRan = 1;
+}
+
+void leftAndRightButton(void) {
+         //LCD::LcdCommandWrite(LCD_ClearDisplay);
+         LCD::print(getStr(PSTR("Setup ")));  
+         delay2(500); 
+         setupRan = 1;
+         initGuino();  
+}
+
+
  
 void loop (void) {
    unsigned long lastActivity;
@@ -461,19 +526,18 @@ void loop (void) {
    unsigned long loopStart;
    unsigned long temp;          //scratch variable
    
-
    lastActivity = microSeconds();
 
-   if(newRun !=1) {
-      //go through the initialization screen
-      initGuino();
+   if(newRun != 1) {
+     #if UNO_MODIFICATIONS
+     #else    //go through the initialization screen
+           //initGuino();
+     #endif
    }
    
+   //Serial.println("engaging true"); 
    while (true) {
-     
-
-
-      loopStart=microSeconds();    
+     loopStart=microSeconds();    
     
       #if (CFG_FUELCUT_INDICATOR != 0)
           FCUT_POS = 8;
@@ -498,34 +562,6 @@ void loop (void) {
       tmpInstInjCount=0;
 
       sei();
-
-      #if (CFG_SERIAL_TX == 1)
-      /* send out instantmpg * 1000, instantmph * 1000, the injector/vss raw data */
-      if (true) {
-      simpletx(format(instantmpg()));
-      simpletx(" impg, ");
-      simpletx(format(instantgph()));
-      simpletx(" igph, ");
-      simpletx(format(instantmph()));
-      simpletx(" imph, ");
-      simpletx(format(instant.injHius   * 100));
-      simpletx(" injHiu, ");
-      simpletx(format(instInjEnd));
-      simpletx(" InjEnd, ");
-      simpletx(format(instInjStart));
-      simpletx(" InjStart, ");
-      simpletx(format(instInjEnd-instInjStart)); 
-      simpletx(" InjEnd-InjStart, "); 
-      simpletx(format(instant.injPulses * 100));
-      simpletx(" injPls, ");
-      simpletx(format(instantrpm()));
-      simpletx(" rpm, ");
-      simpletx(format(instInjCount));
-      simpletx(" InjCount, "); 
-      simpletx(format(instant.vssPulses * 100)); 
-      simpletx(" vssP\n");  
-      }
-      #endif
 
       /* --- update all of the trip objects */
       current.update(instant);       //use instant to update current      
@@ -553,10 +589,7 @@ void loop (void) {
       #endif
       barLength = barLength * 1000; 
       if (millis2() - barTimer < barLength) {
-        //Serial.println("it's small, do nothing");
-        //barTimer = millis2(); 
       } else {
-        //Serial.println("It's big! Now what do we do? We need to make it small again"); 
         barTimer = millis2(); //reset barTimer
                               // and update barGraph
          temp = MIN((periodic.mpg()/10), 0xFFFF);
@@ -567,81 +600,91 @@ void loop (void) {
          insert((int*)PERIODIC_HIST, (unsigned short)temp, mylength(PERIODIC_HIST), 0);
          periodic.reset();   /* reset */
       }
-      #if CFG_SERIAL_TX
-      /*Serial.println(" ");
-      Serial.print("barLength is ");
-      Serial.print(barLength); 
-      Serial.print(", millis2() ");
-      Serial.print(millis2()); 
-      Serial.print(" - barTimer ");
-      Serial.print(barTimer); 
-      Serial.print(" = ");
-      Serial.println(millis2() - barTimer); */
-      #endif
-
-      //put the time-based update refresh here, so we can have loops of varying lenghts which wont throw off the bar graph
-      //check the age of the counter. 
-      //if counter is rilly, rilly old, maytbe 10x delay,  set it to now
-      // else counter old enough but not TOO old  {
-      //update bar graph and reset bar graph and reset time of counter start to now. 
-      //} else {
-      //  do nothing
-      //}
-      //Current time = 0
  
       #endif //ends true/false timer if
       #endif //ends IF BARGRA if
     
       /* --- Decide whether to go to sleep or wake up */
-      if (    (instant.vssPulses  == 0) 
-            && (instantrpm() == 0) 
-            && (HOLD_DISPLAY      == 0) 
-          ) 
+      #if UNO_MODIFICATIONS
+     // if (analogRead (0) > 1000) { //careful enabling this becuase you put the } way below, which is probably not how youre supposed to do the half-if inside preprocessor directive
+      #endif      
+      if (    (instant.vssPulses  == 0) && (instantrpm() == 0) && (HOLD_DISPLAY == 0) )
       {
-         if(   (elapsedMicroseconds(lastActivity) > parms[currentTripResetTimeoutUSIdx])
-            && (lastActivity != nil)
+
+         if(   (elapsedMicroseconds(lastActivity) > parms[currentTripResetTimeoutUSIdx]      )
+             && (lastActivity != nil)
            )
          {
+             delay2(500);
+         setupRan = 1;
+//             loopStart = loopStart + screenDelay; 
+             
             #if (TANK_IN_EEPROM_CFG)
-            //writeEepBlock32(eepBlkAddr_Tank, &tank.var[0], eepBlkSize_Tank);
-			saveTankData();
+  			saveTankData();
+                        current.reset();
+                        LCD::LcdCommandWrite(LCD_ClearDisplay);
+                        LCD::print(getStr(PSTR("Tank Saved"))); 
+                        LCD::gotoXY(0,1);      
+                        LCD::print(getStr(PSTR("Trip Cleared ...")));
+                        //simpletx("Saved tank, cleared trip ... sleeping");
+
+                        delay2(1000);
+                        setupRan = 1;
+                        pinMode(10, OUTPUT);
+                        digitalWrite(10, LOW); 
             #endif
             #if (SLEEP_CFG & Sleep_bkl)
             analogWrite(BrightnessPin,brightness[0]);    //nitey night
             #endif
             #if (SLEEP_CFG & Sleep_lcd)
             LCD::LcdCommandWrite(LCD_DisplayOnOffCtrl);  //LCD off unless explicitly told ON
+            #endif
+            //lastActivity = nil;
+            #if SLEEP_CFG != 0
             system_sleep(); //system PowerDown mode to save power
             #endif
-            lastActivity = nil;
+
+            //callSetupRan(); 
          }
       }
-      else {
+      #if UNO_MODIFICATIONS
+      
+      #endif      
+      else
+      {
          /* wake up! */
+         
+          #if UNO_MODIFICATIONS
+          pinMode(10, INPUT);
+          #endif
          if (lastActivity == nil) {
             #if (SLEEP_CFG & Sleep_bkl)
-            analogWrite(BrightnessPin,brightness[brightnessIdx]);    
+            analogWrite(BrightnessPin,brightness[brightnessIdx]); 
             #endif
             #if (SLEEP_CFG & Sleep_lcd)
-            /* Turn on the LCD again.  Display should be restored. */
+            /* Turn on the LCD again.  Displaƒy should be restored. */
             LCD::LcdCommandWrite(LCD_DisplayOnOffCtrl | LCD_DisplayOnOffCtrl_DispOn);
             /* TODO:  Does the above cause a problem if sleep happens during a settings mode? 
              *        Said another way, we don't get the cursor back unless we ask for it. */
             #endif
-            lastActivity=loopStart;
+            #if UNO_MODIFICATIONS
+            
+            #endif
+            //lastActivity=loopStart;
+            lastActivity=microSeconds();
             tank.loopCount = tankHold;
             current.update(instant); 
             tank.update(instant); 
+            
             #if (BARGRAPH_DISPLAY_CFG == 1)
-            #if (false) 
-            #else
             periodic.reset();
-            #endif
             periodic.update(instant);
             #endif
+            
          }
          else {
             lastActivity=loopStart;
+            lastActivity=microSeconds();
             tankHold = tank.loopCount;
          }
       }
@@ -649,7 +692,7 @@ void loop (void) {
    if (HOLD_DISPLAY == 0) {
 
       #if (CFG_IDLE_MESSAGE == 0)
-      displayFuncs[SCREEN]();    //call the appropriate display routine      
+      displayFuncs[SCREEN]();    //call the appropriate display routine  
       #elif (CFG_IDLE_MESSAGE == 1)
       /* --- during idle, jump to EOC information */
       if (    (instant.injPulses >  0) 
@@ -704,7 +747,9 @@ void loop (void) {
            && (instant.vssPulses == 0) 
          ) 
       {
+      #if (CFG_FUELCUT_INDICATOR == 3)
       LCDBUF1[FCUT_POS] = spinner[CLOCK & 0x03];
+      #endif
       }
 
       /* --- ensure that we have terminating nulls */
@@ -720,9 +765,28 @@ void loop (void) {
       LCD::print(LCDBUF2);
       
       //startOfButtonPresses
+      #if UNO_MODIFICATIONS
+      if (LeftButtonPressed || RightButtonPressed || MiddleButtonPressed || SoftButtonPressed)  //
+      #else
+      if (LeftButtonPressed || RightButtonPressed || MiddleButtonPressed)  //
+      #endif
+     
+      {
+        
+        simpletx("button pressed"); 
       
-      if (LeftButtonPressed || RightButtonPressed || MiddleButtonPressed) {
+        #if UNO_MODIFICATIONS
+          int softButton;
+          softButton = analogRead (0);
+          if (softButton < 1000) {
+            lastActivity = microSeconds(); 
+            LCD::LcdCommandWrite(LCD_ClearDisplay);  // clear display, set cursor position to zero
+            pinMode(10, INPUT);       
+          } 
+
+        #else //else not uno
          LCD::LcdCommandWrite(LCD_ClearDisplay);  // clear display, set cursor position to zero       
+        #endif  //end of uno if
       }
       else {
          LCD::LcdCommandWrite(LCD_ReturnHome); 
@@ -730,19 +794,16 @@ void loop (void) {
       
       /* --- see if any buttons were pressed, display a brief message if so --- */
       if (LeftButtonPressed && RightButtonPressed) {
-         LCD::print(getStr(PSTR("Setup ")));
-         initGuino();  
+        leftAndRightButton(); 
       }
       else if (LeftButtonPressed && MiddleButtonPressed) {
-         tank.reset();      
-         LCD::print(getStr(PSTR("Tank Reset ")));
+        leftAndMiddleButton(); 
       }
       else if (MiddleButtonPressed && RightButtonPressed) {
-         current.reset();      
-         LCD::print(getStr(PSTR("Current Reset ")));  
-     
+        middleAndRightButton(); 
       }
       #if (CFG_IDLE_MESSAGE == 1)
+      
       else if ((LeftButtonPressed || RightButtonPressed) && (IdleDisplayRequested)) {
          /* if the idle display is up and the user hits the left or right button,
           * intercept this press (nonoe of the elseifs will be hit below) 
@@ -751,45 +812,15 @@ void loop (void) {
          IDLE_DISPLAY_DELAY = -60;
       }
       #endif
-      else if (LeftButtonPressed) {
-         // left is rotate through screens to the left      
-         if (SCREEN!=0) {
-             SCREEN--;
-             /*if (SCREEN == dragSceenIdx) {
-               delay2(screenDelay); 
-             }*/
-         }
-         else {
-            SCREEN=displayFuncSize-1;      
-         }
-         LCD::print(getStr(displayFuncNames[SCREEN])); 
+      
+      else if (LeftButtonPressed) { 
+         leftButton(); 
       }
       else if (MiddleButtonPressed) {
-         #if (DRAGRACE_DISPLAY_CFG)
-         if(SCREEN == dragSceenIdx) {
-            myDrag.reset();   
-            LCD::print(getStr(PSTR("DragRace Reset")));
-         } else
-         #endif
-         {
-         brightnessIdx = (brightnessIdx + 1) % brightnessLength;
-         if(brightnessIdx==0) { //just in case when display gets corrupted, you can cycle to brightness 0 and display will be initialized again
-           LCD::init();           
-           //LCD::LcdCommandWrite(LCD_SetDDRAM); // set dram to zero
-         }
-         analogWrite(BrightnessPin,brightness[brightnessIdx]);
-         LCD::print(getStr(PSTR("Brightness ")));
-         LCD::LcdDataWrite('0' + brightnessIdx);
-         LCD::print(" ");  
-         }      
+        middleButton(); 
       }
       else if (RightButtonPressed) {
-         // right is rotate through screens to the right     
-         SCREEN=(SCREEN+1)%displayFuncSize;      
-         LCD::print(getStr(displayFuncNames[SCREEN])); 
-         /*if (SCREEN == dragSceenIdx) {
-               delay2(screenDelay); 
-             }*/
+        rightButton(); 
       }      
 
       #if (CFG_IDLE_MESSAGE == 1)
@@ -799,109 +830,82 @@ void loop (void) {
          IDLE_DISPLAY_DELAY = -60;
       }
       #endif
-
+      
       if (buttonState!=buttonsUp) {
          HOLD_DISPLAY = 1;  
       }
-
-   }  /* if (HOLD_DISPLAY == 0) */
+   }
    else {
       HOLD_DISPLAY = 0;
    } 
 
-   // reset the buttons      
    buttonState=buttonsUp;
    
-#if UNO_MODIFICATIONS == 1  //begin UNO modifications
+#if UNO_MODIFICATIONS == 1  //begin UNO modifications,  0 RIGHT, 99 UP, 255 DOWN, 409/408, LEFT, 639 SELECT, 1023 OPEN
   int softButton;
   softButton = analogRead (0);
   
-  if (softButton < 60) { //reads zero 
-      //Serial.println(("Soft Right"); 
-   LCD::LcdCommandWrite(LCD_ClearDisplay);    
-         SCREEN=(SCREEN+1)%displayFuncSize;      
-         LCD::print(getStr(displayFuncNames[SCREEN])); 
-
-         delay2(screenDelay);  
-
+  if (softButton < 60) { //reads 0, RIGHT
+      rightButton(); 
   }
-  else if (softButton < 200){  //reads 99
 
-      tank.reset();
-      current.reset();
+  else if (softButton < 200){  //reads 99, UP
+      middleButton(); 
   }
-  else if (softButton < 400){ //reads 255
 
-   LCD::LcdCommandWrite(LCD_ClearDisplay);
-         #if (DRAGRACE_DISPLAY_CFG)
-         if(SCREEN == dragSceenIdx) {
-            myDrag.reset();   
-            LCD::print(getStr(PSTR("DragRace Reset"))); 
-            //delay2(125);  
-         } else
-         #endif
-         {
-         brightnessIdx = (brightnessIdx + 1) % brightnessLength;
-         if(brightnessIdx==0) { //just in case when display gets corrupted, you can cycle to brightness 0 and display will be initialized again
-           LCD::init();           
-         }
-         analogWrite(BrightnessPin,brightness[brightnessIdx]);
-         LCD::print(getStr(PSTR("Brightness ")));
-         LCD::LcdDataWrite('0' + brightnessIdx);
-         LCD::print(" ");
-         delay2(screenDelay);
-         }    
+  else if (softButton < 400){ //reads 255, DOWN
+  leftAndMiddleButton(); //calls tank reset 
   }
-  else if (softButton < 600){ //reads 409
-   LCD::LcdCommandWrite(LCD_ClearDisplay);
-      if (SCREEN!=0) {
-             SCREEN--;       
-         }
-         else {
-            SCREEN=displayFuncSize-1;      
-         }
-         LCD::print(getStr(displayFuncNames[SCREEN]));
-         delay2(screenDelay);  
+  else if (softButton < 600){ //reads 409, LEFT
+  leftButton(); 
   }
-  else if (softButton < 800){  //
-   LCD::LcdCommandWrite(LCD_ClearDisplay);
-         LCD::print(getStr(PSTR("Setup ")));  
-         delay2(screenDelay); 
-         initGuino();  
+  
+  else if (softButton < 700){  // reads 639 SELECT
+        leftAndRightButton(); //calls setup
   } else {  //reads 1023
   }
+
 #endif //end if UNO_MODIFICATIONS
 
+
        if (setupRan == 0) {  
-       } else { //reset loopstart so MxLL isn't too long based on setup delay
-         loopStart=microSeconds();  
-         setupRan = 0;
+
+       } else { //reset loopstart so MxLL isn't too long based on setup delay       
+           loopStart=microSeconds();  
+           setupRan = 0;
        }  
-       
-   // keep track of how long the loops take before we go int waiting. 
-   LASTLOOPLENGTH = elapsedMicroseconds(loopStart);   
-   MAXLOOPLENGTH = MAX(MAXLOOPLENGTH, elapsedMicroseconds(loopStart));
+
+// keep track of how long the loops take before we go int waiting. 
+if (elapsedMicroseconds(loopStart) > 1000) {
+MINLOOPLENGTH = MIN(MINLOOPLENGTH, elapsedMicroseconds(loopStart));
+}
+MAXLOOPLENGTH = MAX(MAXLOOPLENGTH, elapsedMicroseconds(loopStart));
+LASTLOOPLENGTH = elapsedMicroseconds(loopStart);
    
-   if (myDrag.running || myDrag.waiting_start) {
-     //if (false) {
-   //don't wait
-   }
-   //else if (instantrpm() > 2500000) {
-     else if (false) {
-   //if above 2500 don't wait
+//#if (DRAGRACE_DISPLAY_CFG)
+     if (myDrag.running || myDrag.waiting_start) {
+       //skip waiting for looptime
    } else {
+//#endif
       while (elapsedMicroseconds(loopStart) < looptime) {
       // wait for the end of the loop to arrive (default was .5, calcualte from header values)
       // if this number is less than millis2() - loopStart, loops will not be delayed
       // wait state is needed otherwise loops are too fast to count RPM accuratly
       continue;
-   
    }
-   //if not <= 2500, then no waiting
+   
+// loopStart = (loopStart - looptime); 
    
   }
-
+       
    CLOCK++;
+    
+   #if JSON_OUT
+   //doDisplayJson(); 
+   sendJsonGraph();
+   #else
+   doDisplaySimpleTx();
+   #endif
    
    } /* close while (true) */
 
@@ -996,16 +1000,371 @@ char* intformat(unsigned long num, byte numlength=6)
 char *getStr(prog_char * str) { 
    static char mBuff[17]; //used by getStr 
    strcpy_P(mBuff, str); 
-   return mBuff; 
-} 
+   return mBuff;
+}
+
+void doDisplaySimpleTx() {
+  
+    #if TRUE //code sample to copy
+      simpletx(format(instantmpg()));
+      simpletx(",");
+      simpletx(format(instantmph()));
+      simpletx(",");
+      simpletx(format(instant.injHius * 1000));
+      simpletx(",");
+      simpletx(format(instant.injPulses * 1000));
+      simpletx(",");
+      simpletx(format(instant.vssPulses * 1000));
+      simpletx("\n");
+    #endif
+
+    //simpletx("1234567890123456789012345678901234567890123456\n");
+    
+    //simpletx("\n\n");  16 rows by 46 char
+    
+    //format gives decimals, intformat is, well. integers
+    
+    simpletx("\n");  //start row 1
+    
+    
+    simpletx("Looptime:    ");
+    simpletx(intformat(LASTLOOPLENGTH));
+    
+    simpletx(" Total Range:");
+    simpletx(intformat(getRNG()));
+        
+    simpletx("\n");  //start row 2
+    
+    simpletx("Maxloop:     ");
+    simpletx(intformat(MAXLOOPLENGTH));
+//    simpletx(intformat(   (MAXLOOPLENGTH,4) ) );
+    simpletx(" Minloop:    ");
+    simpletx(intformat(MINLOOPLENGTH));
+    
+    
+    simpletx("\n");  //start row 3
+    
+    simpletx("Tank MPG:    ");
+    simpletx(format ( tank.mpg() ) );
+    simpletx(" Trip MPG:   ");
+    simpletx(format  ( current.mpg() ) ) ;
+
+    simpletx("\n");  //start row 4
+    
+    //   fuel_remaining = parms[tankSizeIdx] - tank.gallons();
+    //   fuel_remaining = MAX(fuel_remaining, 0);
+    
+    simpletx("Tank Fuel:   ");
+    simpletx(format (tank.gallons()) );
+    simpletx(" Trip Fuel:  ");
+    simpletx(format (current.gallons() ) );
+    
+    simpletx("\n");  //start row 5
+    
+       //displayTripCombo("eC",0,current.eocMiles(), "iL",0,current.idleGallons(),
+         //"eT",0,tank.eocMiles(),    "iL",0,tank.idleGallons());
+    
+    simpletx("Tank Miles:  ");
+    simpletx(format (tank.miles() ) );
+    simpletx(" Trip Miles: ");
+    simpletx(format (current.miles() ) );
+    
+    simpletx("\n");  //start row 6
+    
+    simpletx("Tank Cost:  $");
+    simpletx(format(tank.fuelCost()));
+    simpletx(" Trip Cost: $");
+    simpletx(format(current.fuelCost()));
+    
+    simpletx("\n");  //start row 7
+    
+    simpletx("Total Fuel:  ");
+    simpletx(format (parms[tankSizeIdx]) );
+    simpletx(" Usable:     ");
+    simpletx(format (parms[tankSizeIdx] - 1500));
+    
+    simpletx("\n");   //start row 8
+    
+    simpletx("Fuel Left:   ");
+    simpletx(format(parms[tankSizeIdx] - tank.gallons()));
+    simpletx(" Usable:     ");
+    simpletx(format(parms[tankSizeIdx] - tank.gallons() - 1500));
+    
+    simpletx("\n");  //start row 9
+    
+    simpletx("Dist/Empty   ");
+    simpletx(intformat(getDTE()));
+    simpletx(" Dist/Bingo  ");
+    simpletx(intformat(getDTB()));
+    
+    simpletx("\n"); //start row 10
+    
+    simpletx("Road Speed:  ");
+    //simpletx(instantmph());
+    simpletx( intformat(       instantmph()     ) );
+    simpletx(" Engine RPM: ");
+    simpletx(intformat(instantrpm()));
+    
+    simpletx("\n"); //start row 11
+    
+    simpletx( "Gallons/Hour ");  
+    simpletx(format ( instantgph() ) ) ;
+    simpletx(" Instant MPG ");
+    simpletx(format (instant.mpg() ));
+
+
+    
+    simpletx("\n");  //start row 12       
+
+    unsigned long mem = memoryTest();      
+    mem*=1000;
+
+    simpletx("Free Memory: ");
+    simpletx(intformat(mem,6)); 
+    simpletx(" bytes");
+    
+    simpletx("\n");   //start row 13
+    
+    #if DRAGRACE_DISPLAY_CFG
+    simpletx("Drag to ");
+    //stringOne.trim(); 
+    //String stringOne = "foo"; 
+    String stringOne = intformat(parms[dragDistance]*1000);
+    //stringOne.trim(); 
+    //Serial.print(stringOne);
+    //simpletx(stringOne);  
+    simpletx(intformat(parms[dragDistance]*1000));
+    simpletx(" feet, ");    
+    simpletx(intformat(parms[dragSpeed]*1000));
+    simpletx(" mph");
+    
+    simpletx("\n");  //start row 14
+    
+    simpletx("Time to Speed:");
+    simpletx(format(myDrag.time100kmh()));
+    simpletx(", to dist:  ");
+    simpletx(format(myDrag.time()));   
+    simpletx("\n");  //start row 15
+    
+    simpletx("   Trap Speed:");
+    simpletx(format(myDrag.trapspeed()));
+    simpletx(" mph");
+    
+    simpletx("\n");  //start row 16
+    
+     
+#else
+  simpletx("\n"); //single CRLF
+#endif  
+    
+}
+
+void doDisplayJson() {
+ 
+    simpletx("{\"mpguino\": {"); 
+    
+    simpletx("\"TankFuel\":\"");
+    simpletx(format (tank.gallons()) );
+    simpletx("\","); 
+    
+    simpletx("\"TripFuel\":\"");
+    simpletx(format (current.gallons() ) );
+    simpletx("\","); 
+    
+    
+    simpletx("\"TankMiles\":\"");
+    simpletx(format (tank.miles() ) );
+    simpletx("\","); 
+    
+    simpletx("\"TripMiles\":\"");
+    simpletx(format (current.miles() ) );
+    simpletx("\","); 
+    
+    simpletx("\"TankCost\":\"");
+    simpletx(format(tank.fuelCost()));
+    simpletx("\","); 
+    
+    simpletx("\"TripCost\":\"");
+    simpletx(format(current.fuelCost()));
+    simpletx("\","); 
+    
+    simpletx("\"TotalFuel\":\"");
+    simpletx(format (parms[tankSizeIdx]) );
+    simpletx("\","); 
+    
+    simpletx("\"TotalUsable\":\"");
+    simpletx(format (parms[tankSizeIdx] - 1500));
+    simpletx("\","); 
+    
+    simpletx("\"FuelLeft\":\"");
+    simpletx(format(parms[tankSizeIdx] - tank.gallons()));
+    simpletx("\","); 
+    
+    simpletx("\"UsableLeft\":\"");
+    simpletx(format(parms[tankSizeIdx] - tank.gallons() - 1500));
+    simpletx("\","); 
+    
+    simpletx("\"DistEmpty\":\"");
+    simpletx(intformat(getDTE()));
+    simpletx("\","); 
+    
+    simpletx("\"DistBingo\":\"");
+    simpletx(intformat(getDTB()));
+    simpletx("\","); 
+        
+    simpletx("\"TankMPG\":\"");
+    simpletx(format ( tank.mpg() ) );
+    simpletx("\","); 
+
+    simpletx("\"TripMPG\":\"");
+    simpletx(format  ( current.mpg() ) ) ;
+    simpletx("\","); 
+    
+    simpletx("\"GallonsHour\":\"");
+    simpletx(format ( instantgph() ) ) ;
+    simpletx("\","); 
+    
+    simpletx("\"InstantMPG\":\"");
+    simpletx(format (instant.mpg() ));
+    simpletx("\","); 
+    
+    unsigned long mem = memoryTest();      
+    mem*=1000;
+    
+    simpletx("\"freeMem\": \"");
+    simpletx(intformat(mem,6));
+    simpletx("\",");
+    
+    simpletx("\"lastLoopTime\": \"");    
+    simpletx(intformat(LASTLOOPLENGTH));
+    simpletx("\"");
+    simpletx("}"); //end mpguino
+    simpletx("}"); //end json    
+     
+}
+
+
+void doDisplaySerial() {    
+    /*
+    Serial.print("\n\n");
+    
+    Serial.println("1234567890123456789012345678901234567890123456");
+    //format gives decimals, intformat is, well. integers
+    Serial.print( "Gallons/Hour ");
+    Serial.print(format ( instantgph() ) ) ;
+    Serial.print(" Instant MPG ");
+    Serial.print(format (instant.mpg() ));
+//    Serial.print(" Tank MPG");
+//    Serial.print(format (tank.mpg() ));
+
+    Serial.print("\n");
+    
+    Serial.print("Road Speed:  ");
+    //Serial.print(instantmph());
+    Serial.print( intformat(       instantmph()     ) );
+    Serial.print(" Engine RPM: ");
+    Serial.print(intformat(instantrpm()));
+    
+    Serial.print("\n");
+    
+    Serial.print("Tank MPG:    ");
+    Serial.print(format ( tank.mpg() ) );
+    Serial.print(" Trip MPG:   ");
+    Serial.print(format  ( current.mpg() ) ) ;
+
+    Serial.print("\n");
+    
+    //   fuel_remaining = parms[tankSizeIdx] - tank.gallons();
+    //   fuel_remaining = MAX(fuel_remaining, 0);
+    
+    Serial.print("Tank Fuel:   ");
+    Serial.print(format (tank.gallons()) );
+    Serial.print(" Trip Fuel:  ");
+    Serial.print(format (current.gallons() ) );
+    
+    Serial.print("\n");
+    
+       //displayTripCombo("eC",0,current.eocMiles(), "iL",0,current.idleGallons(),
+         //"eT",0,tank.eocMiles(),    "iL",0,tank.idleGallons());
+    
+    Serial.print("Tank Miles:  ");
+    Serial.print(format (tank.miles() ) );
+    Serial.print(" Trip Miles: ");
+    Serial.print(format (current.miles() ) );
+    
+    Serial.print("\n");
+    
+    Serial.print("Total Fuel:  ");
+    Serial.print(format (parms[tankSizeIdx]) );
+    Serial.print(" Usable:     ");
+    Serial.print(format (parms[tankSizeIdx] - 1500));
+    
+    Serial.print("\n");
+    
+    Serial.print("Fuel Left:   ");
+    Serial.print(format(parms[tankSizeIdx] - tank.gallons()));
+    Serial.print(" Usable:     ");
+    Serial.print(format(parms[tankSizeIdx] - tank.gallons() - 1500));
+    
+    Serial.print("\n");
+    
+    Serial.print("Total Range  ");
+    Serial.print(intformat(getRNG()));
+    Serial.print(" Dist/Empty  ");
+    Serial.print(intformat(getDTE()));
+    
+    Serial.print("\n");
+    
+    Serial.print("Trip Cost:  $");
+    Serial.print(format(current.fuelCost()));
+    Serial.print(" Tank Cost: $");
+    Serial.print(format(tank.fuelCost()));
+    
+    /*
+#if DRAGRACE_DISPLAY_CFG
+    Serial.print("\n");
+    Serial.print("Drag Statistics ----\n");
+    
+    Serial.print("Distance:         ");
+    Serial.print(intformat(parms[dragDistance]*1000));
+    Serial.print(" feet");
+    
+    
+    Serial.print("\n");
+    
+    Serial.print("Speed:            ");
+    Serial.print(intformat(parms[dragSpeed]*1000));
+    Serial.print(" mph");
+    
+    
+    Serial.print("\n");
+    
+    Serial.print("Zero to Speed:    ");
+    Serial.print(format(myDrag.time100kmh()));
+    Serial.print("\n");
+    Serial.print("Elapsed Time:     ");
+    Serial.print(format(myDrag.time()));
+    Serial.print(" sec");     
+    Serial.print("\n");
+
+    
+    Serial.print("Trap Speed:       ");
+    Serial.print(format(myDrag.trapspeed()));
+    Serial.print(" mph");
+*/
+
+
+}
 
 #if (OUTSIDE_TEMP_CFG == 1) 
+
 void doDisplayCustom() {
   
      displayTripCombo("Im",0,instantmpg(), "t",0,OUTSIDE_TEMP_FILT,
                       "GH",0,instantgph(), "m",0,current.mpg());
 }      
 #else
+
 void doDisplayCustom() {
   unsigned long impg = instantmpg();
   char * mBuff = "Im"; //2 char buffer
@@ -1051,6 +1410,10 @@ void doDisplayCarSensors() {
 
 #if(DRAGRACE_DISPLAY_CFG)
 void doDisplayDragRace() {
+/*          Serial.print("\nmyDrag.running = "); 
+            Serial.print(myDrag.running);
+            Serial.print(", myDrag.wating_start = "); 
+            Serial.println(myDrag.waiting_start);   */
 String dSpeed = String(parms[dragSpeed]);
 char * mBuff = "Imm"; //3 char buffer
 itoa(parms[dragSpeed], mBuff, 10);
@@ -1073,7 +1436,17 @@ void doDisplayEOCIdleData() {
    displayTripCombo("iC",0,current.idleGallons(), "e",0,current.eocMiles(),
                     "iT",0,tank.idleGallons(),    "e",0,tank.eocMiles());
    #endif
-}      
+}    
+
+void doDisplaySerialOnly() {  //empty screen
+HOLD_DISPLAY=0;
+//simpletx("doDisplaySerialOnly"); 
+//LCD::LcdCommandWrite(LCD_DisplayOnOffCtrl);
+//   LCD::LcdCommandWrite(LCD_ClearDisplay);            // clear display, set cursor position to zero         
+  // LCD::LcdCommandWrite(LCD_SetDDRAM); 
+   
+}
+
 
 void doDisplayInstantCurrent() {
   unsigned long impg = instantmpg();
@@ -1089,8 +1462,7 @@ void doDisplayInstantCurrent() {
       mBuff = "Gh";
     #endif
   }
-   //displayTripCombo(mBuff,0,impg,  "Spd",1,instantmph(),
-   //                 "Cm",0,current.mpg(), "D",0,current.miles());
+  
    displayTripCombo(mBuff,0,impg,  "RNG",1,getRNG(),
                     "Cm",0,current.mpg(), "Fu",0,tank.gallons());
 }      
@@ -1116,11 +1488,6 @@ void doDisplayInstantTank() {
 
 #if CFG_BIGFONT_TYPE > 0
 void doDisplayBigInstant() {
-//   #if (CFG_UNITS == 2)
-//   bigNum(instantmpg(),"Inst","L/Km");
-//   #else
-//   bigNum(instantmpg(),"Inst","MPG");
-//   #endif 
   unsigned long impg = instantmpg();
   #if (CFG_UNITS == 2)
   char * mBuff = "L/Km"; //4 char buffer;
@@ -1165,14 +1532,14 @@ void doDisplayBigTank()    {
    #endif
 }
 
+#endif
 
 void doDisplayCurrentTripData(void) {
    /* display current trip formatted data */
    tDisplay(&current);
    //How about: x$?         Mi
    //           xMpg?       Fu/Gal
-}   
-#endif
+}  
 
 void doDisplayTankTripData(void) {
    /* display tank trip formatted data */
@@ -1182,14 +1549,10 @@ void doDisplayTankTripData(void) {
 void doDisplaySystemInfo(void) {  
    /* display max cpu utilization and ram */
    strcpy(&LCDBUF1[0], "MxL ");
-   strcpy(&LCDBUF1[4], intformat(   MAXLOOPLENGTH-(maxDelay*1000)      ,4));
+   strcpy(&LCDBUF1[4], intformat(   MAXLOOPLENGTH      ,4));
    strcpy(&LCDBUF1[8], " Ls");
-   //strcpy(&LCDBUF1[11], intformat    ((/*LASTLOOPLENGTH*/1000000/(LASTLOOPLENGTH/1000)),5)   );  
    strcpy(&LCDBUF1[11], intformat    (( (LASTLOOPLENGTH)),5)   );  
-   /*Serial.println(LASTLOOPLENGTH); 
-   Serial.println(maxDelay * 1000); 
-   Serial.print("Screen = "); 
-   Serial.println(SCREEN);*/
+
 
    unsigned long mem = memoryTest();      
    mem*=1000;
@@ -1198,25 +1561,16 @@ void doDisplaySystemInfo(void) {
 }    
 
 #if (BARGRAPH_DISPLAY_CFG == 1) //find bargraph
-           //Serial.print("Screen = "); 
-      //Serial.println(SCREEN); 
    void doDisplayBarGraph(void) {
-     /*
-     //checker
-     int analogPin = 3;  
-     int val = 0; 
-     val = analogRead(analogPin);    // read the input pin
-     Serial.print("analogRead val = ");
-     Serial.println(val);             // debug value
-     ///end checker ok to delete checker
-     */
-     
+   
    unsigned long impg = instantmpg(); 
    signed short temp = 0;
    signed long mpg_temp = 0; 
    unsigned char i = 0;
    unsigned char j = 0;
    unsigned short stemp = 0;
+   
+   unsigned char FCUT_POS;
    
       if (impg == 999999000) {
       FCUT_POS = 33;
@@ -1312,6 +1666,23 @@ void doDisplaySystemInfo(void) {
 }
 #endif
 
+unsigned long getDTB(void){
+   unsigned long dtb;
+   signed long fuel_remaining;
+   fuel_remaining = (parms[tankSizeIdx] - tank.gallons() ) - 1500;
+   fuel_remaining = MAX(fuel_remaining, 0);
+
+   #if (CFG_UNITS == 2)
+   //dte = (fuel_remaining * 100000) / tank.mpg(); //dont work, multiplied number gets too big, either keep small or use long, or both
+   dtb = ((fuel_remaining * 1000) / tank.mpg()) * 100;
+   #else
+   dtb = (fuel_remaining * tank.mpg()) / 1000;
+   #endif
+   
+   return dtb;
+} 
+
+
 unsigned long getDTE(void){
    unsigned long dte;
    signed long fuel_remaining;
@@ -1344,6 +1715,23 @@ unsigned long getRNG(void){
    #endif
    
    return rng;
+} 
+
+unsigned long getBRNG(void){
+  //return 5000; 
+   unsigned long brng;
+   signed long fuel_capacity;
+   fuel_capacity = parms[tankSizeIdx] - 1500;
+   fuel_capacity = MAX(parms[tankSizeIdx], 0);
+   
+   #if (CFG_UNITS == 2)
+   //dte = (fuel_remaining * 100000) / tank.mpg(); //dont work, multiplied number gets too big
+   brng = (parms[tankSizeIdx]/1000) * tank.mpg(); //* 100;
+   #else
+   brng = (parms[tankSizeIdx]/1000) * tank.mpg();// / 1000;
+   #endif
+   
+   return brng;
 } 
 
 
@@ -1446,35 +1834,13 @@ int memoryTest(){
 unsigned long instantmph(){  
   //unsigned long vssPulseTimeuS = (lastVSS1 + lastVSS2) / 2;
   unsigned long vssPulseTimeuS = instant.vssPulseLength/instant.vssPulses;
-  #if CFG_SERIAL_TXx
-  Serial.println();
-  Serial.print("instant.vssPulseLength = ");
-  Serial.print(instant.vssPulseLength); 
-  Serial.print(", instant.vssPulses = ");
-  Serial.println(instant.vssPulses); 
-  Serial.print(", voltage is ");
-  Serial.println(batteryVoltage()); 
-  #endif
   init64(tmp1,0,1000000000ul);
-  #if UNO_MODIFICATIONSeses
-  init64(tmp2,0,1956214);
-  #else
   init64(tmp2,0,parms[vssPulsesPerMileIdx]);
-  #endif
-  #if CFG_SERIAL_TXL
-  simpletx("\n");
-  //Serial.println(); 
-  Serial.print("tmp1 = ");
-  Serial.print(tmp1);
-  Serial.print(", tmp2 = ");
-  Serial.println(tmp2); 
-  #endif 
   div64(tmp1,tmp2);
   init64(tmp2,0,3600);
   mul64(tmp1,tmp2);
   init64(tmp2,0,vssPulseTimeuS);
-  div64(tmp1,tmp2);
-   
+  div64(tmp1,tmp2);   
   return tmp1[1];
 }
 
@@ -1483,10 +1849,6 @@ unsigned long instantmpg(){
   
   unsigned long imph=instantmph();
   unsigned long igph=instantgph();
-  #if UNO_MODIFICATIONS
-  //return 999999000;
-  //return random(0, 40001);
-  #endif
 
 #if(CFG_UNITS==2) // km
   if(imph == 0) return 999999000;
@@ -1513,11 +1875,6 @@ unsigned long instantmpg(){
 }
 
 unsigned long instantgph(){      
-//  unsigned long vssPulseTimeuS = instant.vssPulseLength/instant.vssPulses;
-  
-//  unsigned long instInjStart=nil; 
-//unsigned long instInjEnd; 
-//unsigned long instInjTot; 
   init64(tmp1,0,instInjTot);
   init64(tmp2,0,3600000000ul);
   mul64(tmp1,tmp2);
@@ -1808,6 +2165,9 @@ void readEepBlock32(unsigned int start_addr, unsigned long *val, unsigned int si
 
 #if (TANK_IN_EEPROM_CFG == 1)
 void saveTankData() {
+    //Serial.println("\nTank data saved\n");
+    delay2(500);
+         setupRan = 1;
   unsigned long var[] = {
     tank.loopCount,
     tank.injPulses,
@@ -1884,18 +2244,14 @@ unsigned long rformat(char * val){
   return v;
 } 
 
+boolean callSetupRan(void) {
+  setupRan = 1; 
+  return true; 
+}
+
 
 boolean editParm(unsigned char parmIdx){
-  #if (useDebug)
-  //Serial.println(("Edit Parms called"); 
-  //Serial.println(("setupRan");
-  //Serial.println((setupRan); 
-  #endif
    setupRan = 1; 
-  #if (useDebug) 
-  //Serial.println(("setupRan");
-  //Serial.println((setupRan);
-  #endif
    unsigned long v = parms[parmIdx];
    unsigned char p=9;  //right end of 10 digit number
    unsigned char keyLock=1;    
@@ -1931,7 +2287,7 @@ boolean editParm(unsigned char parmIdx){
     if(p==11)     
       LCD::gotoXY(14,1);   
 
-     if(keyLock == 0) { 
+     if(keyLock == 0) {
         if (LeftButtonPressed && RightButtonPressed) {
             if (p<10)
                p=10;
@@ -1956,11 +2312,13 @@ boolean editParm(unsigned char parmIdx){
                 parms[parmIdx]=rformat(fmtv);
                 LCD::LcdCommandWrite(B00001100); //cursor off
                 delay2(250);
+         setupRan = 1;
                 return true;
              }
              else if(p==11){  //cancel selected
                 LCD::LcdCommandWrite(B00001100); //cursor off
                 delay2(250);
+         setupRan = 1;
                 return false;
              }   			 
 
@@ -1973,7 +2331,7 @@ boolean editParm(unsigned char parmIdx){
              LCD::print(fmtv);
              LCD::gotoXY(p,1);        
              if(parmIdx==contrastIdx)//adjust contrast dynamically
-                 analogWrite(ContrastPin,rformat(fmtv));  
+             analogWrite(ContrastPin,rformat(fmtv));  
         }
 
         if(buttonState!=buttonsUp) keyLock=1;
@@ -1981,41 +2339,36 @@ boolean editParm(unsigned char parmIdx){
      else{
         keyLock=0;
      }
-     maxDelay = 0; 
      buttonState=buttonsUp;
      
   //begin UNO modifications   
   if (UNO_MODIFICATIONS == 1) {
-  int softButton;
+  int softButton; 
   softButton = analogRead (0);
-  if (softButton < 60) { //reads zero 
-      //Serial.println(("Soft Right"); 
+  if (softButton < 60) { //reads zero, RIGHT
             p++;
             if(p==12)p=0; 
   }
-  else if (softButton < 200){  //reads 99
-      //Serial.println(("Soft Up");  
+  else if (softButton < 200){  //reads 99, UP
   }
-  else if (softButton < 400){ //reads 255
-      //Serial.println( ("Soft Down");
+  else if (softButton < 400){ //reads 255, DOWN
   }
-  else if (softButton < 600){ //reads 409
-      //Serial.println(("Soft Left"); 
+  else if (softButton < 600){ //reads 409, LEFT
             p--;
             if(p==255)p=11;      
   }
-  else if (softButton < 800){  //
-      //Serial.println( ("Soft Select");
-  
+  else if (softButton < 800){  //700 or so, reads SELECT
              if(p==10){  //ok selected
                 parms[parmIdx]=rformat(fmtv);
                 LCD::LcdCommandWrite(B00001100); //cursor off
                 delay2(250);
+         setupRan = 1;
                 return true;
              }
              else if(p==11){  //cancel selected
                 LCD::LcdCommandWrite(B00001100); //cursor off
                 delay2(250);
+         setupRan = 1;
                 return false;
              }   			 
 
@@ -2027,32 +2380,35 @@ boolean editParm(unsigned char parmIdx){
              LCD::gotoXY(0,1);        
              LCD::print(fmtv);
              LCD::gotoXY(p,1);        
-             if(parmIdx==contrastIdx)//adjust contrast dynamically
-                 analogWrite(ContrastPin,rformat(fmtv));  
-  } else {  //reads 1023
+           if(parmIdx==contrastIdx)//adjust contrast dynamically
+              analogWrite(ContrastPin,rformat(fmtv));  
+            } else {  //reads 1023
+
   }
+
 } //end if UNO_MODIFICATIONS
      delay2(125);
+         setupRan = 1;
   } 
 }
 
 void initGuino(){ //edit all the parameters
-  for(int x = 0; x<mylength(parms); x++) {
+for(int x = 0; x<mylength(parms); x++) {
     if (!editParm(x)) break;
   }
   save();
   HOLD_DISPLAY=1;
-  maxDelay = 0;
-}  
+}
+
 
 unsigned long millis2(){
 	return timer2_overflow_count * 64UL * 2 / (16000000UL / 128000UL);
 }
 
 void delay2(unsigned long ms){
+        //setupRan = 1; 
 	unsigned long start = millis2();
         while (millis2() - start < ms);
-        maxDelay = MAX(maxDelay, ms);      
 }
 
 /* Delay for the given number of microseconds.  Assumes a 16 MHz clock. 
@@ -2117,28 +2473,48 @@ void simpletx( char * string ){
 /* ------------------------------------------------------------------ */
 #if( SLEEP_CFG == 3 )
 void system_sleep() {
+   //setupRan = 1; 
    set_sleep_mode(SLEEP_MODE_PWR_DOWN); // sleep mode is set here
    sleep_enable();
    sleep_mode();                        // System sleeps here
-   sleep_disable();                     // System continues execution here when watchdog timed out 
+   sleep_disable();
 }
 #endif
 /* ------------------------------------------------------------------ */
+
+
+
+
+
+
+
+
+
 #if(DRAGRACE_DISPLAY_CFG)
 // DRAG functions
 void Drag::reset()
-{
-   time_400m_ms = 0;
-   vss_pulses = 0;
-   trap_speed = 0;
-   time_100kmh_ms = 0;
+{ 
+if (waiting_start || running) {  
+  LCD::print(getStr(PSTR("Drag Cancelled"))); 
+  Drag::finish();
+}
+
+else {
+  LCD::print(getStr(PSTR("Drag Ready")));
    waiting_start = true;
    running = false;
+}
+  time_400m_ms = 0;
+  vss_pulses = 0;
+  trap_speed = 0;
+  time_100kmh_ms = 0;
    #if(CFG_UNITS==2)
    vss_400m = ((parms[dragDistance] + 1) * parms[vssPulsesPerMileIdx]) / 1000;// 0.4;
    #else
    vss_400m = ((parms[dragDistance] + 1) * parms[vssPulsesPerMileIdx]) / 5280;// 0.4;
    #endif
+  delay2(500);
+  setupRan = 1; 
 }
 
 void Drag::start()
@@ -2165,10 +2541,11 @@ void Drag::update()
 
 void Drag::finish()
 {
+   Serial.println("Drag::finish called"); 
    time_400m_ms = millis2() - time_millis;
    trap_speed = instantmph();
-   //drag_distance = (vss_pulses * 5280) / parms[vssPulsesPerMileIdx];
-   running = false;
+   waiting_start = false; 
+   running = false; 
 }
 
 unsigned long Drag::time()
