@@ -8,6 +8,8 @@
 #include "lcd.h"
 #include "serialSend.h"
 
+#include "memdebug.h"
+
 #if( SLEEP_CFG == 3 ) 
 #include <avr/sleep.h>
 #endif
@@ -23,6 +25,8 @@ static unsigned long MINLOOPLENGTH = 99999999; // see if we are underutilizing t
 unsigned long LASTLOOPLENGTH = 0;  
 static boolean  setupRan = 0;  
 static unsigned long barTimer = 0;
+
+unsigned long fuelReserveGalIdx = 3000; 
 
 
 //for display computing
@@ -100,7 +104,6 @@ volatile unsigned long timer2_overflow_count;
 
 /* --- End Global Variable Declarations ---------------------- */
 
-
 /*** Set up the Events ***
 We have our own ISR for timer2 which gets called about once a millisecond.
 So we define certain event functions that we can schedule by calling addEvent
@@ -123,13 +126,12 @@ pFunc eventFuncs[] ={enableVSS, enableLButton,enableMButton,enableRButton,enable
 #define enableLButtonID 1
 #define enableMButtonID 2
 #define enableRButtonID 3
-  #if UNO_MOFDIFICATIONS
+#if UNO_MOFDIFICATIONS
 #define enableSButtonID 4
-  #endif
+#endif
 
 #define useDebug false
 
-//ms counters
 unsigned int eventFuncCounts[eventFuncSize];
 
 //schedule an event to occur ms milliseconds from now
@@ -163,6 +165,7 @@ unsigned char buttonState = buttonsUp;
  
 //overflow counter used by millis2()      
 unsigned long lastMicroSeconds=millis2() * 1000;   
+
 unsigned long microSeconds(void) {     
    unsigned long tmp_timer2_overflow_count;    
    unsigned long tmp;    
@@ -189,17 +192,19 @@ unsigned long elapsedMicroseconds(unsigned long startMicroSeconds, unsigned long
 unsigned long elapsedMicroseconds(unsigned long startMicroSeconds ){      
    return elapsedMicroseconds(startMicroSeconds, microSeconds());
 }      
- 
- 
+  
 //main objects we will be working with:      
 unsigned long injHiStart; //for timing injector pulses      
+
 Trip tmpTrip;      
 Trip instant;      
 Trip current;      
 Trip tank;
+
 #if (BARGRAPH_DISPLAY_CFG == 1)
 Trip periodic;
 #endif
+
 #if (DRAGRACE_DISPLAY_CFG)
 Drag myDrag;
 #endif
@@ -310,6 +315,10 @@ ISR(PCINT1_vect) {
  
  
 pFunc displayFuncs[] ={
+  
+#if MEMORY_REDUCDER
+doDisplaySystemInfo, 
+#else //else MEMORY_REDUCDER
 
    doDisplaySerialOnly, //0
    doDisplayInstantCurrent, //1
@@ -333,6 +342,8 @@ pFunc displayFuncs[] ={
    doDisplayBigCurrent,     //11
    doDisplayBigSpeed,       //12
    #endif
+   
+#endif //endif of MEMORY_REDUCDER
 
 };      
 
@@ -343,19 +354,24 @@ prog_char  * displayFuncNames[displayFuncSize];
 unsigned char serialOnlyScreenIdx; 
 
 unsigned char newRun = 0;
+
 #if (DRAGRACE_DISPLAY_CFG)
 unsigned char dragScreenIdx;
 #endif
+
 #if BARGRAPH_DISPLAY_CFG
 unsigned char barGraphScreenIdx;
 #endif
 
 void setup (void) {
-  simpletx("void setup called\n"); 
+  #if NANO_MODS
+  #else
+  //simpletx("initial setup\n"); 
+  #endif
    unsigned char x = 0;
    //unsigned char dgIdx = 0;
    CLOCK = 0;
-   SCREEN = 1;
+   SCREEN = 0;
    HOLD_DISPLAY = 0;
 
    #if (CFG_IDLE_MESSAGE != 0)
@@ -365,6 +381,11 @@ void setup (void) {
    init2();
    newRun = load();//load the default parameters
    serialOnlyScreenIdx = x; 
+   #if MEMORY_REDUCDER
+   displayFuncNames[x++]=  PSTR("CPU Monitor");
+   displayFuncNames[x++]=  PSTR("Current Trip");
+   displayFuncNames[x++]=  PSTR("Tank Data"); 
+   #else
    displayFuncNames[x++]=  PSTR("Serial Only"); 
    displayFuncNames[x++]=  PSTR("Instant/Current"); 
    displayFuncNames[x++]=  PSTR("Instant/Tank");
@@ -396,7 +417,7 @@ void setup (void) {
    displayFuncNames[x++]=  PSTR("Big Current");  
    #endif
 
-
+#endif //end of IF MEMORY_REDUCDER
    
    pinMode(BrightnessPin,OUTPUT);      
    analogWrite(BrightnessPin,brightness[brightnessIdx]);      
@@ -445,9 +466,9 @@ void setup (void) {
    enableMButton();
    enableRButton();
    #if UNO_MODIFICATIONS
-   enableSButton(); 
-   PCICR |= (1 << PCIE1);       
+   enableSButton();      
    #endif
+   PCICR |= (1 << PCIE1);  
 
    #if (OUTSIDE_TEMP_CFG == 1)
    INIT_OUTSIDE_TEMP();
@@ -456,7 +477,6 @@ void setup (void) {
    delay2(500);
    setupRan = 1;
 } /* void setup (void) */
-
 
 void leftButton(void) {
          if (SCREEN!=0) {
@@ -518,8 +538,6 @@ void leftAndRightButton(void) {
          initGuino();  
 }
 
-
- 
 void loop (void) {
    unsigned long lastActivity;
    unsigned long tankHold;      //state at point of last activity
@@ -531,12 +549,18 @@ void loop (void) {
    if(newRun != 1) {
      #if UNO_MODIFICATIONS
      #else    //go through the initialization screen
-           //initGuino();
+       #if BYPASS_INITIAL_SETUP
+       #else
+           initGuino();
+       #endif
      #endif
    }
    
    //Serial.println("engaging true"); 
    while (true) {
+     #if NANO_MODS
+     digitalWrite(13, HIGH); 
+     #endif
      loopStart=microSeconds();    
     
       #if (CFG_FUELCUT_INDICATOR != 0)
@@ -626,12 +650,14 @@ void loop (void) {
                         LCD::print(getStr(PSTR("Tank Saved"))); 
                         LCD::gotoXY(0,1);      
                         LCD::print(getStr(PSTR("Trip Cleared ...")));
-                        //simpletx("Saved tank, cleared trip ... sleeping");
+                        
 
                         delay2(1000);
                         setupRan = 1;
+                        #if UNO_MODIFICATIONS
                         pinMode(10, OUTPUT);
-                        digitalWrite(10, LOW); 
+                        digitalWrite(10, LOW);
+                        #endif 
             #endif
             #if (SLEEP_CFG & Sleep_bkl)
             analogWrite(BrightnessPin,brightness[0]);    //nitey night
@@ -773,7 +799,7 @@ void loop (void) {
      
       {
         
-        simpletx("button pressed"); 
+        //simpletx("button pressed"); 
       
         #if UNO_MODIFICATIONS
           int softButton;
@@ -882,21 +908,424 @@ MINLOOPLENGTH = MIN(MINLOOPLENGTH, elapsedMicroseconds(loopStart));
 MAXLOOPLENGTH = MAX(MAXLOOPLENGTH, elapsedMicroseconds(loopStart));
 LASTLOOPLENGTH = elapsedMicroseconds(loopStart);
    
-//#if (DRAGRACE_DISPLAY_CFG)
+//#if (DRAGRACE_DISPLAY_CFG)void loop (void) {
+   unsigned long lastActivity;
+   unsigned long tankHold;      //state at point of last activity
+   unsigned long loopStart;
+   unsigned long temp;          //scratch variable
+   
+   lastActivity = microSeconds();
+
+   if(newRun != 1) {
+     #if UNO_MODIFICATIONS
+     #else    //go through the initialization screen
+       #if BYPASS_INITIAL_SETUP
+       #else
+           initGuino();
+       #endif
+     #endif
+   }
+   
+   //Serial.println("engaging true"); 
+   while (true) {
+     #if NANO_MODS
+     digitalWrite(13, HIGH); 
+     #endif
+     loopStart=microSeconds();    
+    
+      #if (CFG_FUELCUT_INDICATOR != 0)
+          FCUT_POS = 8;
+      #endif
+      
+      #if (OUTSIDE_TEMP_CFG == 1)
+      CALC_FILTERED_TEMP();
+      #endif
+      
+      instant.reset();           //clear instant      
+      cli();
+      instant.update(tmpTrip);   //"copy" of tmpTrip in instant now      
+      tmpTrip.reset();           //reset tmpTrip first so we don't lose too many interrupts      
+      instInjStart=tmpInstInjStart; 
+      instInjEnd=tmpInstInjEnd; 
+      instInjTot=tmpInstInjTot;     
+      instInjCount=tmpInstInjCount;
+      
+      tmpInstInjStart=nil; 
+      tmpInstInjEnd=nil; 
+      tmpInstInjTot=0;     
+      tmpInstInjCount=0;
+
+      sei();
+
+      /* --- update all of the trip objects */
+      current.update(instant);       //use instant to update current      
+      tank.update(instant);          //use instant to update tank
+      #if (BARGRAPH_DISPLAY_CFG == 1)
+      if (lastActivity != nil) {
+         periodic.update(instant);   //use instant to update periodic 
+      }
+      #endif
+
+      #if (BARGRAPH_DISPLAY_CFG == 1)
+      #if false
+      /* --- For bargraph: reset periodic every n seconds, where n = loopcount / loopspersec, so 60 is 30 seconds */
+      if (periodic.loopCount / loopsPerSecond >= 30) {
+         temp = MIN((periodic.mpg()/10), 0xFFFF);
+         /* add temp into first element and shift items in array */
+         insert((int*)PERIODIC_HIST, (unsigned short)temp, mylength(PERIODIC_HIST), 0);
+         periodic.reset();   /* reset */
+      }
+      #else
+      #if UNO_MODIFICATIONS
+      unsigned long barLength = 9;
+      #else
+      unsigned long barLength = 90;
+      #endif
+      barLength = barLength * 1000; 
+      if (millis2() - barTimer < barLength) {
+      } else {
+        barTimer = millis2(); //reset barTimer
+                              // and update barGraph
+         temp = MIN((periodic.mpg()/10), 0xFFFF);
+         #if UNO_MODIFICATIONS
+         //temp = random(500, 4000); 
+         #endif
+         /* add temp into first element and shift items in array */
+         insert((int*)PERIODIC_HIST, (unsigned short)temp, mylength(PERIODIC_HIST), 0);
+         periodic.reset();   /* reset */
+      }
+ 
+      #endif //ends true/false timer if
+      #endif //ends IF BARGRA if
+    
+      /* --- Decide whether to go to sleep or wake up */
+      #if UNO_MODIFICATIONS
+     // if (analogRead (0) > 1000) { //careful enabling this becuase you put the } way below, which is probably not how youre supposed to do the half-if inside preprocessor directive
+      #endif      
+      if (    (instant.vssPulses  == 0) && (instantrpm() == 0) && (HOLD_DISPLAY == 0) )
+      {
+
+         if(   (elapsedMicroseconds(lastActivity) > parms[currentTripResetTimeoutUSIdx]      )
+             && (lastActivity != nil)
+           )
+         {
+             delay2(500);
+         setupRan = 1;
+//             loopStart = loopStart + screenDelay; 
+             
+            #if (TANK_IN_EEPROM_CFG)
+  			saveTankData();
+                        current.reset();
+                        sendJsonGraph();
+                        LCD::LcdCommandWrite(LCD_ClearDisplay);
+                        LCD::print(getStr(PSTR("Tank Saved"))); 
+                        LCD::gotoXY(0,1);      
+                        LCD::print(getStr(PSTR("Trip Cleared ...")));
+                        
+
+                        delay2(1000);
+                        setupRan = 1;
+                        #if UNO_MODIFICATIONS
+                        pinMode(10, OUTPUT);
+                        digitalWrite(10, LOW);
+                        #endif 
+            #endif
+            #if (SLEEP_CFG & Sleep_bkl)
+            analogWrite(BrightnessPin,brightness[0]);    //nitey night
+            #endif
+            #if (SLEEP_CFG & Sleep_lcd)
+            LCD::LcdCommandWrite(LCD_DisplayOnOffCtrl);  //LCD off unless explicitly told ON
+            #endif
+            //lastActivity = nil;
+            #if SLEEP_CFG != 0
+            system_sleep(); //system PowerDown mode to save power
+            #endif
+
+            //callSetupRan(); 
+         }
+      }
+      #if UNO_MODIFICATIONS
+      
+      #endif      
+      else
+      {
+         /* wake up! */
+         
+          #if UNO_MODIFICATIONS
+          pinMode(10, INPUT);
+          #endif
+         if (lastActivity == nil) {
+            #if (SLEEP_CFG & Sleep_bkl)
+            analogWrite(BrightnessPin,brightness[brightnessIdx]); 
+            #endif
+            #if (SLEEP_CFG & Sleep_lcd)
+            /* Turn on the LCD again.  Displaƒy should be restored. */
+            LCD::LcdCommandWrite(LCD_DisplayOnOffCtrl | LCD_DisplayOnOffCtrl_DispOn);
+            /* TODO:  Does the above cause a problem if sleep happens during a settings mode? 
+             *        Said another way, we don't get the cursor back unless we ask for it. */
+            #endif
+            #if UNO_MODIFICATIONS
+            
+            #endif
+            //lastActivity=loopStart;
+            analogWrite(BrightnessPin,brightness[brightnessIdx]); 
+            lastActivity=microSeconds();
+            tank.loopCount = tankHold;
+            current.update(instant); 
+            tank.update(instant); 
+            
+            #if (BARGRAPH_DISPLAY_CFG == 1)
+            periodic.reset();
+            periodic.update(instant);
+            #endif
+            
+         }
+         else {
+            lastActivity=loopStart;
+            lastActivity=microSeconds();
+            tankHold = tank.loopCount;
+         }
+      }
+
+   if (HOLD_DISPLAY == 0) {
+
+      #if (CFG_IDLE_MESSAGE == 0)
+      displayFuncs[SCREEN]();    //call the appropriate display routine  
+      #elif (CFG_IDLE_MESSAGE == 1)
+      /* --- during idle, jump to EOC information */
+      if (    (instant.injPulses >  0) 
+           && (instant.vssPulses == 0) 
+         ) 
+      {
+         /* the intention of the below logic is to avoid the display flipping 
+            in stop and go traffic.  When you come to a stop, the delay timer 
+            starts incrementing.  When you drive off, it decrements.  When the
+            timer is zero, the display is always at the user-specified screen */
+         if (IDLE_DISPLAY_DELAY < 6) {
+            /* count up until delay time is reached */
+            IDLE_DISPLAY_DELAY++;
+         }
+      }
+      else {
+         if (IdleDisplayRequested) {   //IdleDisplayRequested     (IDLE_DISPLAY_DELAY > 0)
+            /* count from delay time back down to zero */
+            IDLE_DISPLAY_DELAY--;
+         }
+         else if (IDLE_DISPLAY_DELAY < 0) {
+            /* if the user selected a new screen while stopped, reset 
+               the delay timer after driveoff */
+            IDLE_DISPLAY_DELAY = 0;
+         }
+      }
+
+      if (IdleDisplayRequested) {
+         doDisplayEOCIdleData();
+      }
+      else {
+         displayFuncs[SCREEN]();
+      }
+      #endif
+
+      #if (CFG_FUELCUT_INDICATOR != 0)
+      
+      /* --- insert visual indication that fuel cut is happening */
+      if (    (instantrpm() == 0) //if RPM zero but speed yes, do fcut
+           && (instant.vssPulses > 0) 
+         ) 
+      {
+         #if (CFG_FUELCUT_INDICATOR == 1)
+         LCDBUF1[FCUT_POS] = 'x';
+         #elif ((CFG_FUELCUT_INDICATOR == 2) || (CFG_FUELCUT_INDICATOR == 3))
+         LCDBUF1[FCUT_POS] = spinner[CLOCK & 0x03];
+         #endif
+      }
+      #endif
+      
+      if (    (instant.injPulses  > 0)  //if yes fuel but no speed, show as idle
+           && (instant.vssPulses == 0) 
+         ) 
+      {
+      #if (CFG_FUELCUT_INDICATOR == 3)
+      LCDBUF1[FCUT_POS] = spinner[CLOCK & 0x03];
+      #endif
+      }
+
+      /* --- ensure that we have terminating nulls */
+      LCDBUF1[16] = 0;
+      LCDBUF2[16] = 0;
+
+      /* print line 1 */
+      LCD::LcdCommandWrite(LCD_ReturnHome);
+      LCD::print(LCDBUF1);
+
+      /* print line 2 */
+      LCD::gotoXY(0,1);
+      LCD::print(LCDBUF2);
+      
+      //startOfButtonPresses
+      #if UNO_MODIFICATIONS
+      if (LeftButtonPressed || RightButtonPressed || MiddleButtonPressed || SoftButtonPressed)  //
+      #else
+      if (LeftButtonPressed || RightButtonPressed || MiddleButtonPressed)  //
+      #endif
+     
+      {
+        
+        //simpletx("button pressed"); 
+      
+        #if UNO_MODIFICATIONS
+          int softButton;
+          softButton = analogRead (0);
+          if (softButton < 1000) {
+            lastActivity = microSeconds(); 
+            LCD::LcdCommandWrite(LCD_ClearDisplay);  // clear display, set cursor position to zero
+            pinMode(10, INPUT);       
+          } 
+
+        #else //else not uno
+         LCD::LcdCommandWrite(LCD_ClearDisplay);  // clear display, set cursor position to zero       
+        #endif  //end of uno if
+      }
+      else {
+         LCD::LcdCommandWrite(LCD_ReturnHome); 
+      }
+      
+      /* --- see if any buttons were pressed, display a brief message if so --- */
+      if (LeftButtonPressed && RightButtonPressed) {
+        leftAndRightButton(); 
+      }
+      else if (LeftButtonPressed && MiddleButtonPressed) {
+        leftAndMiddleButton(); 
+      }
+      else if (MiddleButtonPressed && RightButtonPressed) {
+        middleAndRightButton(); 
+      }
+      #if (CFG_IDLE_MESSAGE == 1)
+      
+      else if ((LeftButtonPressed || RightButtonPressed) && (IdleDisplayRequested)) {
+         /* if the idle display is up and the user hits the left or right button,
+          * intercept this press (nonoe of the elseifs will be hit below) 
+          * only in this circumstance and get out of the idle display for a while.
+          * This will return the user to his default screen. */
+         IDLE_DISPLAY_DELAY = -60;
+      }
+      #endif
+      
+      else if (LeftButtonPressed) { 
+         leftButton(); 
+      }
+      else if (MiddleButtonPressed) {
+        middleButton(); 
+      }
+      else if (RightButtonPressed) {
+        rightButton(); 
+      }      
+
+      #if (CFG_IDLE_MESSAGE == 1)
+      if (LeftButtonPressed || RightButtonPressed) {
+         /* When the user wants to change screens, continue to 
+          * avoid the idle screen for a while */
+         IDLE_DISPLAY_DELAY = -60;
+      }
+      #endif
+      
+      if (buttonState!=buttonsUp) {
+         HOLD_DISPLAY = 1;  
+      }
+   }
+   else {
+      HOLD_DISPLAY = 0;
+   } 
+
+   buttonState=buttonsUp;
+   
+#if UNO_MODIFICATIONS == 1  //begin UNO modifications,  0 RIGHT, 99 UP, 255 DOWN, 409/408, LEFT, 639 SELECT, 1023 OPEN
+  int softButton;
+  softButton = analogRead (0);
+  
+  if (softButton < 60) { //reads 0, RIGHT
+      rightButton(); 
+  }
+
+  else if (softButton < 200){  //reads 99, UP
+      middleButton(); 
+  }
+
+  else if (softButton < 400){ //reads 255, DOWN
+  leftAndMiddleButton(); //calls tank reset 
+  }
+  else if (softButton < 600){ //reads 409, LEFT
+  leftButton(); 
+  }
+  
+  else if (softButton < 700){  // reads 639 SELECT
+        leftAndRightButton(); //calls setup
+  } else {  //reads 1023
+  }
+
+#endif //end if UNO_MODIFICATIONS
+
+
+       if (setupRan == 0) {  
+
+       } else { //reset loopstart so MxLL isn't too long based on setup delay       
+           loopStart=microSeconds();  
+           setupRan = 0;
+       }  
+
+// keep track of how long the loops take before we go int waiting. 
+if (elapsedMicroseconds(loopStart) > 1000) {
+MINLOOPLENGTH = MIN(MINLOOPLENGTH, elapsedMicroseconds(loopStart));
+}
+MAXLOOPLENGTH = MAX(MAXLOOPLENGTH, elapsedMicroseconds(loopStart));
+LASTLOOPLENGTH = elapsedMicroseconds(loopStart);
+   
+#if (DRAGRACE_DISPLAY_CFG)
      if (myDrag.running || myDrag.waiting_start) {
        //skip waiting for looptime
-   } else {
-//#endif
+#else
+if (false) {
+#endif
+  } else {
+
       while (elapsedMicroseconds(loopStart) < looptime) {
       // wait for the end of the loop to arrive (default was .5, calcualte from header values)
       // if this number is less than millis2() - loopStart, loops will not be delayed
       // wait state is needed otherwise loops are too fast to count RPM accuratly
       continue;
-   }
+   } 
+
+   
+// loopStart = (loopStart - looptime); 
+#if (DRAGRACE_DISPLAY_CFG)
+  }
+#else
+  }
+#endif
+       
+   CLOCK++;
+    
+   #if JSON_OUT
+   //doDisplayJson(); 
+   sendJsonGraph();
+   #else
+   doDisplaySimpleTx();
+   #endif
+   
+   } 
+
+} 
+
+      while (elapsedMicroseconds(loopStart) < looptime) {
+      // wait for the end of the loop to arrive (default was .5, calcualte from header values)
+      // if this number is less than millis2() - loopStart, loops will not be delayed
+      // wait state is needed otherwise loops are too fast to count RPM accuratly
+      continue;
+   
    
 // loopStart = (loopStart - looptime); 
    
-  }
+//  }
        
    CLOCK++;
     
@@ -1003,358 +1432,7 @@ char *getStr(prog_char * str) {
    return mBuff;
 }
 
-void doDisplaySimpleTx() {
-  
-    #if TRUE //code sample to copy
-      simpletx(format(instantmpg()));
-      simpletx(",");
-      simpletx(format(instantmph()));
-      simpletx(",");
-      simpletx(format(instant.injHius * 1000));
-      simpletx(",");
-      simpletx(format(instant.injPulses * 1000));
-      simpletx(",");
-      simpletx(format(instant.vssPulses * 1000));
-      simpletx("\n");
-    #endif
-
-    //simpletx("1234567890123456789012345678901234567890123456\n");
-    
-    //simpletx("\n\n");  16 rows by 46 char
-    
-    //format gives decimals, intformat is, well. integers
-    
-    simpletx("\n");  //start row 1
-    
-    
-    simpletx("Looptime:    ");
-    simpletx(intformat(LASTLOOPLENGTH));
-    
-    simpletx(" Total Range:");
-    simpletx(intformat(getRNG()));
-        
-    simpletx("\n");  //start row 2
-    
-    simpletx("Maxloop:     ");
-    simpletx(intformat(MAXLOOPLENGTH));
-//    simpletx(intformat(   (MAXLOOPLENGTH,4) ) );
-    simpletx(" Minloop:    ");
-    simpletx(intformat(MINLOOPLENGTH));
-    
-    
-    simpletx("\n");  //start row 3
-    
-    simpletx("Tank MPG:    ");
-    simpletx(format ( tank.mpg() ) );
-    simpletx(" Trip MPG:   ");
-    simpletx(format  ( current.mpg() ) ) ;
-
-    simpletx("\n");  //start row 4
-    
-    //   fuel_remaining = parms[tankSizeIdx] - tank.gallons();
-    //   fuel_remaining = MAX(fuel_remaining, 0);
-    
-    simpletx("Tank Fuel:   ");
-    simpletx(format (tank.gallons()) );
-    simpletx(" Trip Fuel:  ");
-    simpletx(format (current.gallons() ) );
-    
-    simpletx("\n");  //start row 5
-    
-       //displayTripCombo("eC",0,current.eocMiles(), "iL",0,current.idleGallons(),
-         //"eT",0,tank.eocMiles(),    "iL",0,tank.idleGallons());
-    
-    simpletx("Tank Miles:  ");
-    simpletx(format (tank.miles() ) );
-    simpletx(" Trip Miles: ");
-    simpletx(format (current.miles() ) );
-    
-    simpletx("\n");  //start row 6
-    
-    simpletx("Tank Cost:  $");
-    simpletx(format(tank.fuelCost()));
-    simpletx(" Trip Cost: $");
-    simpletx(format(current.fuelCost()));
-    
-    simpletx("\n");  //start row 7
-    
-    simpletx("Total Fuel:  ");
-    simpletx(format (parms[tankSizeIdx]) );
-    simpletx(" Usable:     ");
-    simpletx(format (parms[tankSizeIdx] - 1500));
-    
-    simpletx("\n");   //start row 8
-    
-    simpletx("Fuel Left:   ");
-    simpletx(format(parms[tankSizeIdx] - tank.gallons()));
-    simpletx(" Usable:     ");
-    simpletx(format(parms[tankSizeIdx] - tank.gallons() - 1500));
-    
-    simpletx("\n");  //start row 9
-    
-    simpletx("Dist/Empty   ");
-    simpletx(intformat(getDTE()));
-    simpletx(" Dist/Bingo  ");
-    simpletx(intformat(getDTB()));
-    
-    simpletx("\n"); //start row 10
-    
-    simpletx("Road Speed:  ");
-    //simpletx(instantmph());
-    simpletx( intformat(       instantmph()     ) );
-    simpletx(" Engine RPM: ");
-    simpletx(intformat(instantrpm()));
-    
-    simpletx("\n"); //start row 11
-    
-    simpletx( "Gallons/Hour ");  
-    simpletx(format ( instantgph() ) ) ;
-    simpletx(" Instant MPG ");
-    simpletx(format (instant.mpg() ));
-
-
-    
-    simpletx("\n");  //start row 12       
-
-    unsigned long mem = memoryTest();      
-    mem*=1000;
-
-    simpletx("Free Memory: ");
-    simpletx(intformat(mem,6)); 
-    simpletx(" bytes");
-    
-    simpletx("\n");   //start row 13
-    
-    #if DRAGRACE_DISPLAY_CFG
-    simpletx("Drag to ");
-    //stringOne.trim(); 
-    //String stringOne = "foo"; 
-    String stringOne = intformat(parms[dragDistance]*1000);
-    //stringOne.trim(); 
-    //Serial.print(stringOne);
-    //simpletx(stringOne);  
-    simpletx(intformat(parms[dragDistance]*1000));
-    simpletx(" feet, ");    
-    simpletx(intformat(parms[dragSpeed]*1000));
-    simpletx(" mph");
-    
-    simpletx("\n");  //start row 14
-    
-    simpletx("Time to Speed:");
-    simpletx(format(myDrag.time100kmh()));
-    simpletx(", to dist:  ");
-    simpletx(format(myDrag.time()));   
-    simpletx("\n");  //start row 15
-    
-    simpletx("   Trap Speed:");
-    simpletx(format(myDrag.trapspeed()));
-    simpletx(" mph");
-    
-    simpletx("\n");  //start row 16
-    
-     
-#else
-  simpletx("\n"); //single CRLF
-#endif  
-    
-}
-
-void doDisplayJson() {
- 
-    simpletx("{\"mpguino\": {"); 
-    
-    simpletx("\"TankFuel\":\"");
-    simpletx(format (tank.gallons()) );
-    simpletx("\","); 
-    
-    simpletx("\"TripFuel\":\"");
-    simpletx(format (current.gallons() ) );
-    simpletx("\","); 
-    
-    
-    simpletx("\"TankMiles\":\"");
-    simpletx(format (tank.miles() ) );
-    simpletx("\","); 
-    
-    simpletx("\"TripMiles\":\"");
-    simpletx(format (current.miles() ) );
-    simpletx("\","); 
-    
-    simpletx("\"TankCost\":\"");
-    simpletx(format(tank.fuelCost()));
-    simpletx("\","); 
-    
-    simpletx("\"TripCost\":\"");
-    simpletx(format(current.fuelCost()));
-    simpletx("\","); 
-    
-    simpletx("\"TotalFuel\":\"");
-    simpletx(format (parms[tankSizeIdx]) );
-    simpletx("\","); 
-    
-    simpletx("\"TotalUsable\":\"");
-    simpletx(format (parms[tankSizeIdx] - 1500));
-    simpletx("\","); 
-    
-    simpletx("\"FuelLeft\":\"");
-    simpletx(format(parms[tankSizeIdx] - tank.gallons()));
-    simpletx("\","); 
-    
-    simpletx("\"UsableLeft\":\"");
-    simpletx(format(parms[tankSizeIdx] - tank.gallons() - 1500));
-    simpletx("\","); 
-    
-    simpletx("\"DistEmpty\":\"");
-    simpletx(intformat(getDTE()));
-    simpletx("\","); 
-    
-    simpletx("\"DistBingo\":\"");
-    simpletx(intformat(getDTB()));
-    simpletx("\","); 
-        
-    simpletx("\"TankMPG\":\"");
-    simpletx(format ( tank.mpg() ) );
-    simpletx("\","); 
-
-    simpletx("\"TripMPG\":\"");
-    simpletx(format  ( current.mpg() ) ) ;
-    simpletx("\","); 
-    
-    simpletx("\"GallonsHour\":\"");
-    simpletx(format ( instantgph() ) ) ;
-    simpletx("\","); 
-    
-    simpletx("\"InstantMPG\":\"");
-    simpletx(format (instant.mpg() ));
-    simpletx("\","); 
-    
-    unsigned long mem = memoryTest();      
-    mem*=1000;
-    
-    simpletx("\"freeMem\": \"");
-    simpletx(intformat(mem,6));
-    simpletx("\",");
-    
-    simpletx("\"lastLoopTime\": \"");    
-    simpletx(intformat(LASTLOOPLENGTH));
-    simpletx("\"");
-    simpletx("}"); //end mpguino
-    simpletx("}"); //end json    
-     
-}
-
-
-void doDisplaySerial() {    
-    /*
-    Serial.print("\n\n");
-    
-    Serial.println("1234567890123456789012345678901234567890123456");
-    //format gives decimals, intformat is, well. integers
-    Serial.print( "Gallons/Hour ");
-    Serial.print(format ( instantgph() ) ) ;
-    Serial.print(" Instant MPG ");
-    Serial.print(format (instant.mpg() ));
-//    Serial.print(" Tank MPG");
-//    Serial.print(format (tank.mpg() ));
-
-    Serial.print("\n");
-    
-    Serial.print("Road Speed:  ");
-    //Serial.print(instantmph());
-    Serial.print( intformat(       instantmph()     ) );
-    Serial.print(" Engine RPM: ");
-    Serial.print(intformat(instantrpm()));
-    
-    Serial.print("\n");
-    
-    Serial.print("Tank MPG:    ");
-    Serial.print(format ( tank.mpg() ) );
-    Serial.print(" Trip MPG:   ");
-    Serial.print(format  ( current.mpg() ) ) ;
-
-    Serial.print("\n");
-    
-    //   fuel_remaining = parms[tankSizeIdx] - tank.gallons();
-    //   fuel_remaining = MAX(fuel_remaining, 0);
-    
-    Serial.print("Tank Fuel:   ");
-    Serial.print(format (tank.gallons()) );
-    Serial.print(" Trip Fuel:  ");
-    Serial.print(format (current.gallons() ) );
-    
-    Serial.print("\n");
-    
-       //displayTripCombo("eC",0,current.eocMiles(), "iL",0,current.idleGallons(),
-         //"eT",0,tank.eocMiles(),    "iL",0,tank.idleGallons());
-    
-    Serial.print("Tank Miles:  ");
-    Serial.print(format (tank.miles() ) );
-    Serial.print(" Trip Miles: ");
-    Serial.print(format (current.miles() ) );
-    
-    Serial.print("\n");
-    
-    Serial.print("Total Fuel:  ");
-    Serial.print(format (parms[tankSizeIdx]) );
-    Serial.print(" Usable:     ");
-    Serial.print(format (parms[tankSizeIdx] - 1500));
-    
-    Serial.print("\n");
-    
-    Serial.print("Fuel Left:   ");
-    Serial.print(format(parms[tankSizeIdx] - tank.gallons()));
-    Serial.print(" Usable:     ");
-    Serial.print(format(parms[tankSizeIdx] - tank.gallons() - 1500));
-    
-    Serial.print("\n");
-    
-    Serial.print("Total Range  ");
-    Serial.print(intformat(getRNG()));
-    Serial.print(" Dist/Empty  ");
-    Serial.print(intformat(getDTE()));
-    
-    Serial.print("\n");
-    
-    Serial.print("Trip Cost:  $");
-    Serial.print(format(current.fuelCost()));
-    Serial.print(" Tank Cost: $");
-    Serial.print(format(tank.fuelCost()));
-    
-    /*
-#if DRAGRACE_DISPLAY_CFG
-    Serial.print("\n");
-    Serial.print("Drag Statistics ----\n");
-    
-    Serial.print("Distance:         ");
-    Serial.print(intformat(parms[dragDistance]*1000));
-    Serial.print(" feet");
-    
-    
-    Serial.print("\n");
-    
-    Serial.print("Speed:            ");
-    Serial.print(intformat(parms[dragSpeed]*1000));
-    Serial.print(" mph");
-    
-    
-    Serial.print("\n");
-    
-    Serial.print("Zero to Speed:    ");
-    Serial.print(format(myDrag.time100kmh()));
-    Serial.print("\n");
-    Serial.print("Elapsed Time:     ");
-    Serial.print(format(myDrag.time()));
-    Serial.print(" sec");     
-    Serial.print("\n");
-
-    
-    Serial.print("Trap Speed:       ");
-    Serial.print(format(myDrag.trapspeed()));
-    Serial.print(" mph");
-*/
-
-
-}
+#if MEMORY_REDUCER == 0
 
 #if (OUTSIDE_TEMP_CFG == 1) 
 
@@ -1437,16 +1515,6 @@ void doDisplayEOCIdleData() {
                     "iT",0,tank.idleGallons(),    "e",0,tank.eocMiles());
    #endif
 }    
-
-void doDisplaySerialOnly() {  //empty screen
-HOLD_DISPLAY=0;
-//simpletx("doDisplaySerialOnly"); 
-//LCD::LcdCommandWrite(LCD_DisplayOnOffCtrl);
-//   LCD::LcdCommandWrite(LCD_ClearDisplay);            // clear display, set cursor position to zero         
-  // LCD::LcdCommandWrite(LCD_SetDDRAM); 
-   
-}
-
 
 void doDisplayInstantCurrent() {
   unsigned long impg = instantmpg();
@@ -1545,6 +1613,16 @@ void doDisplayTankTripData(void) {
    /* display tank trip formatted data */
    tDisplay(&tank);
 }      
+#endif //end MEMORY_REDUCER
+
+void doDisplaySerialOnly() {  //empty screen
+HOLD_DISPLAY=0;
+//simpletx("doDisplaySerialOnly"); 
+//LCD::LcdCommandWrite(LCD_DisplayOnOffCtrl);
+//   LCD::LcdCommandWrite(LCD_ClearDisplay);            // clear display, set cursor position to zero         
+  // LCD::LcdCommandWrite(LCD_SetDDRAM); 
+   
+}
 
 void doDisplaySystemInfo(void) {  
    /* display max cpu utilization and ram */
@@ -1554,11 +1632,14 @@ void doDisplaySystemInfo(void) {
    strcpy(&LCDBUF1[11], intformat    (( (LASTLOOPLENGTH)),5)   );  
 
 
-   unsigned long mem = memoryTest();      
+   signed long mem = memoryTest();      
    mem*=1000;
+   signed long mem2 = getFreeMemory();
    strcpy(&LCDBUF2[0], "Free mem: ");
    strcpy(&LCDBUF2[10],  intformat(mem,6));
-}    
+   //strcpy(&LCDBUF2[10],  format(current.time()*100));
+   //strcpy(&LCDBUF2[10],  intformat(millis2()%13799));
+ }    
 
 #if (BARGRAPH_DISPLAY_CFG == 1) //find bargraph
    void doDisplayBarGraph(void) {
@@ -1669,7 +1750,7 @@ void doDisplaySystemInfo(void) {
 unsigned long getDTB(void){
    unsigned long dtb;
    signed long fuel_remaining;
-   fuel_remaining = (parms[tankSizeIdx] - tank.gallons() ) - 1500;
+   fuel_remaining = (parms[tankSizeIdx] - tank.gallons() ) - fuelReserveGalIdx;
    fuel_remaining = MAX(fuel_remaining, 0);
 
    #if (CFG_UNITS == 2)
@@ -1705,13 +1786,21 @@ unsigned long getRNG(void){
    unsigned long rng;
    signed long fuel_capacity;
    fuel_capacity = parms[tankSizeIdx];
-   fuel_capacity = MAX(parms[tankSizeIdx], 0);
+   fuel_capacity = MAX(fuel_capacity, 0);
    
+   /*
    #if (CFG_UNITS == 2)
    //dte = (fuel_remaining * 100000) / tank.mpg(); //dont work, multiplied number gets too big
    rng = (parms[tankSizeIdx]/1000) * tank.mpg(); //* 100;
    #else
    rng = (parms[tankSizeIdx]/1000) * tank.mpg();// / 1000;
+   #endif
+   */
+   
+   #if (CFG_UNITS == 2)
+   rng = ((fuel_capacity * 1000) / tank.mpg()) * 100;
+   #else
+   rng = (fuel_capacity * tank.mpg()) / 1000;
    #endif
    
    return rng;
@@ -1721,14 +1810,13 @@ unsigned long getBRNG(void){
   //return 5000; 
    unsigned long brng;
    signed long fuel_capacity;
-   fuel_capacity = parms[tankSizeIdx] - 1500;
-   fuel_capacity = MAX(parms[tankSizeIdx], 0);
+   fuel_capacity = parms[tankSizeIdx] - fuelReserveGalIdx;
+   fuel_capacity = MAX(fuel_capacity, 0);
    
    #if (CFG_UNITS == 2)
-   //dte = (fuel_remaining * 100000) / tank.mpg(); //dont work, multiplied number gets too big
-   brng = (parms[tankSizeIdx]/1000) * tank.mpg(); //* 100;
+   brng = ((fuel_capacity * 1000) / tank.mpg()) * 100;
    #else
-   brng = (parms[tankSizeIdx]/1000) * tank.mpg();// / 1000;
+   brng = (fuel_capacity * tank.mpg()) / 1000;
    #endif
    
    return brng;
@@ -1851,11 +1939,11 @@ unsigned long instantmpg(){
   unsigned long igph=instantgph();
 
 #if(CFG_UNITS==2) // km
-  if(imph == 0) return 999999000;
+  if(imph == 0) return 200000;
   if(igph == 0) return 0;
 #else // miles
   if(imph == 0) return 0;
-  if(igph == 0) return 999999000;
+  if(igph == 0) return 200000;
 #endif
 
   init64(tmp1,0,1000ul);
@@ -1979,11 +2067,11 @@ unsigned long  Trip::mpg(){
 #endif
 #endif
   #if(CFG_UNITS==2) // km
-    if(vssPulses==0) return 999999000;      
+    if(vssPulses==0) return 200000;      
     if(injPulses==0) return 0;
   #else // miles
     if(vssPulses==0) return 0;      
-    if(injPulses==0) return 999999000; //who doesn't like to see 999999?  :)    
+    if(injPulses==0) return 200000; //who doesn't like to see 999999, or for gphx, 200?  :)    
   #endif
  
   init64(tmp1,0,injHiSec);
@@ -2014,7 +2102,8 @@ unsigned long  Trip::mpg(){
  
 //return the hhh:mm      
 unsigned long Trip::time(){          
-   unsigned long seconds = (loopCount/loopsPerSecond)/60; //minutes actually         
+   //unsigned long seconds = (loopCount/loopsPerSecond)/60; //minutes actually      
+   unsigned long seconds = (loopCount/loopsPerSecond);          
    return ((seconds/60)*1000) + ((seconds%60) * 10);       
 }
 
@@ -2164,8 +2253,9 @@ void readEepBlock32(unsigned int start_addr, unsigned long *val, unsigned int si
 }
 
 #if (TANK_IN_EEPROM_CFG == 1)
+
 void saveTankData() {
-    //Serial.println("\nTank data saved\n");
+  
     delay2(500);
          setupRan = 1;
   unsigned long var[] = {
@@ -2195,6 +2285,7 @@ void loadTankData() {
   tank.vssEOCPulses = var[7];
   tank.vssPulseLength = var[8];
 }
+
 #endif
 
 unsigned char load(){ //return 1 if loaded ok
@@ -2248,7 +2339,6 @@ boolean callSetupRan(void) {
   setupRan = 1; 
   return true; 
 }
-
 
 boolean editParm(unsigned char parmIdx){
    setupRan = 1; 
@@ -2453,7 +2543,6 @@ void init2(){
 	TIMSK0&=!(1<<TOIE0);
 }
 
-
 #if (CFG_SERIAL_TX == 1)
 void simpletx( char * string ){
  if (UCSR0B != (1<<TXEN0)){ //do we need to init the uart?
@@ -2481,13 +2570,6 @@ void system_sleep() {
 }
 #endif
 /* ------------------------------------------------------------------ */
-
-
-
-
-
-
-
 
 
 #if(DRAGRACE_DISPLAY_CFG)

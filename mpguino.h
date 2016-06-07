@@ -74,9 +74,9 @@
 
 // how many times will we try and loop in a second
 #if (UNO_MODIFICATIONS == 1)
-#define loopsPerSecond                         2
+#define loopsPerSecond                         4
 #else
-#define loopsPerSecond                         2   
+#define loopsPerSecond                         4
 #endif
 /* --- LCD line buffer size --- */
 #define bufsize                                17
